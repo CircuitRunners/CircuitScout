@@ -11,7 +11,9 @@
 import type * as account from "../account.js";
 import type * as admin from "../admin.js";
 import type * as archive from "../archive.js";
+import type * as assignments from "../assignments.js";
 import type * as auth from "../auth.js";
+import type * as crons from "../crons.js";
 import type * as entries from "../entries.js";
 import type * as events from "../events.js";
 import type * as exports from "../exports.js";
@@ -42,7 +44,9 @@ declare const fullApi: ApiFromModules<{
   account: typeof account;
   admin: typeof admin;
   archive: typeof archive;
+  assignments: typeof assignments;
   auth: typeof auth;
+  crons: typeof crons;
   entries: typeof entries;
   events: typeof events;
   exports: typeof exports;

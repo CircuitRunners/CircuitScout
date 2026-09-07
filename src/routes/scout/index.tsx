@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
 import { PageShell } from "@/routes/page-shell";
+import { STATION_LABELS, type Station } from "@/lib/types";
 import { submittedBeforeMatchEnd } from "@/lib/scoring";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,9 +17,11 @@ import {
 function MatchRobots({
   matchNumber,
   highlight,
+  assignedTeam,
 }: {
   matchNumber: number;
   highlight: number | null;
+  assignedTeam: number | null;
 }) {
   const data = useQuery(api.matches.teamsInMatch, { matchNumber });
   const counts = useQuery(api.matchReports.countsForMatch, { matchNumber });
@@ -52,14 +55,16 @@ function MatchRobots({
                 onClick={() => void navigate(`/scout/${matchNumber}/${team.number}`)}
                 className={[
                   "flex min-h-14 w-full items-center gap-2 rounded-md border p-3 text-left transition-colors",
-                  team.number === highlight
-                    ? "border-primary bg-primary/10"
-                    : "hover:bg-accent/50",
+                  team.number === assignedTeam
+                    ? "border-2 border-green-500 bg-green-500/10"
+                    : team.number === highlight
+                      ? "border-primary bg-primary/10"
+                      : "hover:bg-accent/50",
                 ].join(" ")}
               >
                 <span className="font-semibold tabular-nums">{team.number}</span>
                 <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
-                  {team.nickname}
+                  {team.number === assignedTeam ? "yours" : team.nickname}
                 </span>
                 <Badge
                   variant={count === 0 ? "outline" : mine ? "secondary" : "default"}
@@ -101,6 +106,10 @@ export default function ScoutLandingPage() {
   const myReports = useQuery(api.matchReports.mine);
   const [open, setOpen] = useState<number | null>(null);
   const [matchSearch, setMatchSearch] = useState("");
+  const assignments = useQuery(api.assignments.mine);
+  const assignedByMatch = new Map(
+    (assignments?.assigned ?? []).map((a) => [a.matchNumber, a]),
+  );
 
   // One box for both, because a scout looking for "their" match knows either
   // the match number or their assigned team — and often only one of them.
@@ -170,7 +179,12 @@ export default function ScoutLandingPage() {
           ) : null}
 
           {shown.map((match) => (
-            <div key={match._id} className="rounded-lg border">
+            <div key={match._id} className={[
+              "rounded-lg border",
+              assignedByMatch.has(match.matchNumber)
+                ? "border-2 border-green-500 bg-green-500/5"
+                : "",
+            ].join(" ")}>
               <button
                 onClick={() =>
                   setOpen(expanded === match.matchNumber ? null : match.matchNumber)
@@ -178,6 +192,15 @@ export default function ScoutLandingPage() {
                 className="hover:bg-accent/50 flex min-h-14 w-full items-center gap-3 p-3 text-left transition-colors"
               >
                 <span className="font-medium">Qual {match.matchNumber}</span>
+                {assignedByMatch.has(match.matchNumber) ? (
+                  <span className={[
+                    "shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium text-white",
+                    assignedByMatch.get(match.matchNumber)!.station.startsWith("red")
+                      ? "bg-red-600" : "bg-blue-600",
+                  ].join(" ")}>
+                    {STATION_LABELS[assignedByMatch.get(match.matchNumber)!.station as Station]} · yours
+                  </span>
+                ) : null}
                 <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
                   {match.redTeamNumbers.join(", ")} vs {match.blueTeamNumbers.join(", ")}
                 </span>
@@ -188,7 +211,8 @@ export default function ScoutLandingPage() {
                 />
               </button>
               {expanded === match.matchNumber ? (
-                <MatchRobots matchNumber={match.matchNumber} highlight={highlight} />
+                <MatchRobots matchNumber={match.matchNumber} highlight={highlight}
+                  assignedTeam={assignedByMatch.get(match.matchNumber)?.teamNumber ?? null} />
               ) : null}
             </div>
           ))}

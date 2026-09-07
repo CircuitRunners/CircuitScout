@@ -1,9 +1,10 @@
 import { useAction, useMutation, useQuery } from "convex/react";
-import { CheckCircle2, Download, LoaderCircle, Trash2 } from "lucide-react";
+import { CheckCircle2, Download, LoaderCircle, Trash2, Trash, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { PageShell } from "@/routes/page-shell";
 import { RolesTable } from "./roles-table";
 import {
@@ -17,10 +18,88 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 
+function PurgePanel({
+  eventId,
+  confirmKey,
+  onConfirmKeyChange,
+  busy,
+  onCancel,
+  onPurge,
+}: {
+  eventId: Id<"events">;
+  confirmKey: string;
+  onConfirmKeyChange: (next: string) => void;
+  busy: boolean;
+  onCancel: () => void;
+  onPurge: () => void;
+}) {
+  const preview = useQuery(api.events.purgePreview, { eventId });
+  if (preview === undefined) {
+    return <p className="text-muted-foreground w-full p-3 text-sm">Counting…</p>;
+  }
+  if (preview === null) return null;
+
+  const nothing =
+    preview.matchReports === 0 && preview.pitReports === 0 && preview.pickLists === 0;
+
+  return (
+    <div className="border-destructive mt-1 w-full space-y-3 rounded-md border p-3">
+      <p className="text-destructive text-sm font-medium">
+        Deleting {preview.name} hides it and everything attached to it.
+      </p>
+      <ul className="text-muted-foreground space-y-0.5 text-xs">
+        <li>{preview.matchReports} match reports
+          {preview.contributingScouts > 0
+            ? ` from ${preview.contributingScouts} scouts`
+            : ""}</li>
+        <li>{preview.pitReports} pit reports</li>
+        <li>{preview.pickLists} pick lists, including everyone's personal ones</li>
+        <li>{preview.matches} matches and {preview.teams} teams</li>
+      </ul>
+      {preview.activeFor.length > 0 ? (
+        <p className="text-destructive text-xs">
+          Team {preview.activeFor.join(", ")} currently has this event active.
+          They will be left with no event.
+        </p>
+      ) : null}
+      {nothing ? (
+        <p className="text-muted-foreground text-xs">
+          Nothing was scouted here, so this is only removing imported data.
+        </p>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          Recoverable for 24 hours from the bottom of this list, then purged
+          for good. Export from Coverage and Quality if you want a copy that
+          outlives that.
+        </p>
+      )}
+      <Input
+        placeholder={`Type ${preview.eventKey} to confirm`}
+        value={confirmKey}
+        autoCapitalize="none"
+        onChange={(e) => onConfirmKeyChange(e.target.value)}
+      />
+      <div className="flex gap-2">
+        <Button variant="destructive" size="sm"
+          disabled={busy || confirmKey.trim() !== preview.eventKey}
+          onClick={onPurge}>
+          Delete permanently
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const events = useQuery(api.events.list);
   const importEvent = useAction(api.tba.importEvent);
   const setActiveForTeam = useMutation(api.events.setActiveForTeam);
+  const softDelete = useMutation(api.events.softDelete);
+  const recoverEvent = useMutation(api.events.recover);
+  const [purgeTarget, setPurgeTarget] = useState<string | null>(null);
+  const [purgeKey, setPurgeKey] = useState("");
+  const [purging, setPurging] = useState(false);
   const settings = useQuery(api.events.teamSettings);
   const removeEvent = useMutation(api.events.remove);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -122,7 +201,7 @@ export default function AdminPage() {
               No events yet. Import one above.
             </p>
           ) : (
-            events.map((event) => (
+            events.filter((e) => !e.deletedAt).map((event) => (
               <div
                 key={event._id}
                 className="flex flex-wrap items-center gap-3 rounded-lg border p-3"
@@ -145,6 +224,15 @@ export default function AdminPage() {
                       : ""}
                   </p>
                 </div>
+                {isFullAdmin ? (
+                  <Button variant="destructive" size="sm"
+                    onClick={() => {
+                      setPurgeTarget(purgeTarget === event._id ? null : event._id);
+                      setPurgeKey("");
+                    }}>
+                    <Trash className="size-3" /> Delete
+                  </Button>
+                ) : null}
                 {targetTeam === null ? (
                   <span className="text-muted-foreground text-xs">
                     Pick a team below
@@ -178,6 +266,33 @@ export default function AdminPage() {
                     {event.reportCount + event.pitCount === 1 ? "" : "s"}
                   </Badge>
                 )}
+
+              {purgeTarget === event._id ? (
+                <PurgePanel
+                  eventId={event._id}
+                  confirmKey={purgeKey}
+                  onConfirmKeyChange={setPurgeKey}
+                  busy={purging}
+                  onCancel={() => { setPurgeTarget(null); setPurgeKey(""); }}
+                  onPurge={() => {
+                    setPurging(true);
+                    void softDelete({ eventId: event._id, confirmKey: purgeKey })
+                      .then(() => {
+                        toast.success(`${event.name} deleted`, {
+                          description: "Recoverable for 24 hours.",
+                        });
+                        setPurgeTarget(null);
+                        setPurgeKey("");
+                      })
+                      .catch((error: unknown) =>
+                        toast.error("Could not delete", {
+                          description:
+                            error instanceof Error ? error.message : String(error),
+                        }))
+                      .finally(() => setPurging(false));
+                  }}
+                />
+              ) : null}
 
               {removing === event._id ? (
                 <div className="mt-1 w-full space-y-2 rounded-md border border-dashed p-3">
@@ -214,6 +329,51 @@ export default function AdminPage() {
               </div>
             ))
           )}
+
+          {(events ?? []).some((e) => e.deletedAt) ? (
+            <div className="space-y-2 pt-2">
+              <p className="text-muted-foreground text-xs">
+                Deleted — recoverable for 24 hours, then purged for good.
+              </p>
+              {(events ?? [])
+                .filter((e) => e.deletedAt)
+                .map((event) => {
+                  const hoursLeft = Math.max(
+                    0,
+                    Math.ceil((event.deletedAt! + 24 * 60 * 60 * 1000 - Date.now()) / 3600000),
+                  );
+                  return (
+                    <div key={event._id}
+                      className="flex flex-wrap items-center gap-3 rounded-lg border p-3 opacity-60">
+                      <div className="min-w-0 flex-1">
+                        <span className="truncate font-medium line-through">
+                          {event.name}
+                        </span>
+                        <p className="text-muted-foreground text-xs">
+                          {event.tbaEventKey} · {event.teamCount} teams ·{" "}
+                          {event.reportCount} match reports · purged in{" "}
+                          {hoursLeft}h
+                        </p>
+                      </div>
+                      {isFullAdmin ? (
+                        <Button variant="secondary" size="sm"
+                          onClick={() => {
+                            void recoverEvent({ eventId: event._id })
+                              .then((r) => toast.success(`${r.name} recovered`))
+                              .catch((error: unknown) =>
+                                toast.error("Could not recover", {
+                                  description:
+                                    error instanceof Error ? error.message : String(error),
+                                }));
+                          }}>
+                          <RotateCcw className="size-3" /> Recover
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

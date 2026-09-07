@@ -5,6 +5,7 @@ import {
   requireAdmin, requireTeamAdmin,
 } from "./lib/guards";
 import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 
 export const active = query({
   args: {},
@@ -53,6 +54,7 @@ export const list = query({
 
       withCounts.push({
         ...event,
+        deletedAt: event.deletedAt ?? null,
         activeForTeams: settings,
         teamCount: teams.length,
         matchCount: matches.length,
@@ -357,11 +359,6 @@ export const remove = mutation({
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
       .collect();
     for (const match of matches) {
-      const claims = await ctx.db
-        .query("matchClaims")
-        .withIndex("by_match_team", (q) => q.eq("matchId", match._id))
-        .collect();
-      for (const claim of claims) await ctx.db.delete(claim._id);
       await ctx.db.delete(match._id);
     }
 
@@ -375,5 +372,185 @@ export const remove = mutation({
 
     await ctx.db.delete(args.eventId);
     return { teams: teams.length, matches: matches.length };
+  },
+});
+
+/** Exactly what a purge would destroy. Read-only; nothing acts on this. */
+export const purgePreview = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const event = await ctx.db.get(args.eventId);
+    if (!event) return null;
+
+    const [teams, matches, reports, pit, lists, settings] = await Promise.all([
+      ctx.db.query("teams").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+      ctx.db.query("matches").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+      ctx.db.query("matchReports").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+      ctx.db.query("pitReports").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+      ctx.db.query("pickLists").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+      ctx.db.query("teamSettings").collect(),
+    ]);
+
+    const scouts = new Set(reports.map((r) => r.scoutId));
+    const activeFor = settings
+      .filter((t) => t.activeEventId === args.eventId)
+      .map((t) => t.teamNumber);
+
+    return {
+      eventKey: event.tbaEventKey,
+      name: event.name,
+      teams: teams.length,
+      matches: matches.length,
+      matchReports: reports.length,
+      pitReports: pit.length,
+      pickLists: lists.length,
+      contributingScouts: scouts.size,
+      activeFor,
+    };
+  },
+});
+
+/**
+ * Deletes an event and everything attached to it. Full admins only, and
+ * separate from events.remove so the safe path stays safe.
+ *
+ * Order matters: children before parents, so a failure part-way leaves
+ * orphaned rows rather than rows pointing at an event that no longer exists.
+ */
+export const RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Shared by the immediate purge and the scheduled one. */
+async function purgeEventData(ctx: MutationCtx, eventId: Id<"events">) {
+  const args = { eventId };
+  const counts = { matchReports: 0, pitReports: 0, entries: 0, lists: 0, matches: 0, teams: 0 };
+
+    const reports = await ctx.db
+      .query("matchReports")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    for (const report of reports) {
+      const edits = await ctx.db
+        .query("reportEdits")
+        .withIndex("by_report", (q) => q.eq("reportId", report._id))
+        .collect();
+      for (const edit of edits) await ctx.db.delete(edit._id);
+      const dismissals = await ctx.db
+        .query("flagDismissals")
+        .withIndex("by_report", (q) => q.eq("reportId", report._id))
+        .collect();
+      for (const row of dismissals) await ctx.db.delete(row._id);
+      await ctx.db.delete(report._id);
+      counts.matchReports += 1;
+    }
+
+    const pit = await ctx.db
+      .query("pitReports")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    for (const row of pit) { await ctx.db.delete(row._id); counts.pitReports += 1; }
+
+    const lists = await ctx.db
+      .query("pickLists")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    for (const list of lists) {
+      const entries = await ctx.db
+        .query("pickListEntries")
+        .withIndex("by_list", (q) => q.eq("pickListId", list._id))
+        .collect();
+      for (const entry of entries) { await ctx.db.delete(entry._id); counts.entries += 1; }
+      await ctx.db.delete(list._id);
+      counts.lists += 1;
+    }
+
+    const matches = await ctx.db
+      .query("matches")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    for (const match of matches) {
+      await ctx.db.delete(match._id);
+      counts.matches += 1;
+    }
+
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    for (const team of teams) { await ctx.db.delete(team._id); counts.teams += 1; }
+
+    // Any team pointing at this event is left with none rather than a
+    // dangling id, so their app says "no active event" instead of breaking.
+    const settings = await ctx.db.query("teamSettings").collect();
+    for (const row of settings) {
+      if (row.activeEventId === args.eventId) {
+        await ctx.db.patch(row._id, { activeEventId: null, updatedAt: Date.now() });
+      }
+    }
+
+    
+  await ctx.db.delete(args.eventId);
+  return counts;
+}
+
+/**
+ * Marks the event deleted. Nothing is destroyed yet — every table is scoped by
+ * eventId, so hiding the event hides its data, and the teamSettings pointer is
+ * deliberately left alone so recovery restores the team's event too.
+ */
+export const softDelete = mutation({
+  args: { eventId: v.id("events"), confirmKey: v.string() },
+  handler: async (ctx, args) => {
+    const me = await requireAdmin(ctx);
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("That event no longer exists.");
+    if (args.confirmKey.trim() !== event.tbaEventKey) {
+      throw new Error("The event key does not match.");
+    }
+    await ctx.db.patch(args.eventId, {
+      deletedAt: Date.now(),
+      deletedBy: me.userId,
+    });
+  },
+});
+
+export const recover = mutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("That event is gone for good.");
+    await ctx.db.patch(args.eventId, { deletedAt: null, deletedBy: null });
+    return { name: event.name };
+  },
+});
+
+/** Runs hourly. Anything past the window goes for real. */
+export const purgeExpired = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - RECOVERY_WINDOW_MS;
+    const events = await ctx.db.query("events").collect();
+    let purged = 0;
+    for (const event of events) {
+      if (!event.deletedAt || event.deletedAt > cutoff) continue;
+      await purgeEventData(ctx, event._id);
+      purged += 1;
+    }
+    return { purged };
+  },
+});
+
+/** Skips the wait. Same confirmation, no recovery. */
+export const purgeNow = mutation({
+  args: { eventId: v.id("events"), confirmKey: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("That event no longer exists.");
+    if (args.confirmKey.trim() !== event.tbaEventKey) {
+      throw new Error("The event key does not match.");
+    }
+    return await purgeEventData(ctx, args.eventId);
   },
 });

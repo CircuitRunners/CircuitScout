@@ -98,7 +98,11 @@ export async function activeEventForTeam(
     .withIndex("by_team", (q) => q.eq("teamNumber", teamNumber))
     .unique();
   if (!settings || settings.activeEventId === null) return null;
-  return await ctx.db.get(settings.activeEventId);
+  const event = await ctx.db.get(settings.activeEventId);
+  // A deleted event reads as no event. The pointer is left alone so recovery
+  // puts the team straight back where they were.
+  if (!event || event.deletedAt) return null;
+  return event;
 }
 
 export async function requireActiveEvent(

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { api } from "../../../convex/_generated/api";
+import { AssignDialog, BatchAssignDialog } from "./assign-dialog";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,9 @@ export function RolesTable() {
   const [manageSearch, setManageSearch] = useState("");
   const [confirmName, setConfirmName] = useState("");
   const [targetId, setTargetId] = useState<string | null>(null);
+  const [assignId, setAssignId] = useState<Id<"profiles"> | null>(null);
+  const [assignName, setAssignName] = useState("");
+  const [batchOpen, setBatchOpen] = useState(false);
 
   const adminCount = profiles?.filter((p) => p.role === "admin").length ?? 0;
   // Only a full admin grants roles. A team admin sets trust levels for their
@@ -165,6 +169,9 @@ export function RolesTable() {
               <Button variant="outline" onClick={() => setManageOpen(true)}>
                 <Users className="size-4" /> Manage scouts
               </Button>
+              <Button variant="outline" onClick={() => setBatchOpen(true)}>
+                Batch assign shifts
+              </Button>
               </div>
 
               {pickerOpen ? (
@@ -257,6 +264,14 @@ export function RolesTable() {
                       <span className="text-muted-foreground font-normal"> (you)</span>
                     ) : null}
                   </span>
+
+                  <Button size="sm" variant="outline"
+                    onClick={() => {
+                      setAssignId(profile._id);
+                      setAssignName(profile.displayName);
+                    }}>
+                    Assign matches
+                  </Button>
 
                   {canSetRoles ? (
                     <div className="flex gap-1">
@@ -394,6 +409,11 @@ export function RolesTable() {
           </div>
         </DialogContent>
       </Dialog>
+      <AssignDialog profileId={assignId} displayName={assignName}
+        onClose={() => setAssignId(null)} />
+
+      <BatchAssignDialog open={batchOpen} profiles={sorted}
+        onClose={() => setBatchOpen(false)} />
     </>
   );
 }

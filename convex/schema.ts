@@ -79,6 +79,10 @@ export default defineSchema({
     isActive: v.boolean(),
     importedAt: v.union(v.number(), v.null()),
     importedBy: v.union(v.id("users"), v.null()),
+    /** Set when deleted. The event and its data survive until a cron purges
+     *  them, so a mistake is recoverable for 24 hours. */
+    deletedAt: v.optional(v.union(v.number(), v.null())),
+    deletedBy: v.optional(v.union(v.id("users"), v.null())),
   })
     .index("by_key", ["tbaEventKey"])
     .index("by_active", ["isActive"]),
@@ -118,16 +122,25 @@ export default defineSchema({
     .index("by_event", ["eventId"])
     .index("by_event_number", ["eventId", "matchNumber"]),
 
-  matchClaims: defineTable({
+  /**
+   * A shift: watch this driver station for this run of matches. Ranges store
+   * match NUMBERS, so re-importing a revised schedule moves shifts with it.
+   */
+  matchAssignments: defineTable({
     eventId: v.id("events"),
-    matchId: v.id("matches"),
-    teamId: v.id("teams"),
-    scoutId: v.id("users"),
-    claimedAt: v.number(),
-    expiresAt: v.number(),
+    profileId: v.id("profiles"),
+    teamNumber: v.number(),
+    fromMatch: v.number(),
+    toMatch: v.number(),
+    station: v.union(
+      v.literal("red1"), v.literal("red2"), v.literal("red3"),
+      v.literal("blue1"), v.literal("blue2"), v.literal("blue3"),
+    ),
+    createdAt: v.number(),
+    createdBy: v.id("users"),
   })
-    .index("by_match_team", ["matchId", "teamId"])
-    .index("by_scout", ["scoutId"]),
+    .index("by_event_profile", ["eventId", "profileId"])
+    .index("by_event_team", ["eventId", "teamNumber"]),
 
   pitReports: defineTable({
     eventId: v.id("events"),

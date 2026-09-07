@@ -100,3 +100,25 @@ export const EMPTY_STATS: TeamStats = {
   avgEndgameFuel: 0, avgTotalFuel: 0, avgClimbPoints: 0, avgDriver: 0,
   avgDefense: 0, avgAccuracy: 0, minTotalFuel: 0, maxTotalFuel: 0,
 };
+
+export type Station =
+  | "red1" | "red2" | "red3"
+  | "blue1" | "blue2" | "blue3";
+
+export const STATIONS: ReadonlyArray<Station> = [
+  "red1", "red2", "red3", "blue1", "blue2", "blue3",
+];
+
+export const STATION_LABELS: Record<Station, string> = {
+  red1: "Red 1", red2: "Red 2", red3: "Red 3",
+  blue1: "Blue 1", blue2: "Blue 2", blue3: "Blue 3",
+};
+
+export function stationAlliance(station: Station): "red" | "blue" {
+  return station.startsWith("red") ? "red" : "blue";
+}
+
+/** 0-based position within that alliance's three teams. */
+export function stationIndex(station: Station): number {
+  return Number.parseInt(station.slice(-1), 10) - 1;
+}

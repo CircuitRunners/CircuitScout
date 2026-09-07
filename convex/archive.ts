@@ -21,6 +21,7 @@ export const events = query({
 
     const rows = [];
     for (const event of all) {
+      if (event.deletedAt) continue;
       const teams = await ctx.db
         .query("teams")
         .withIndex("by_event", (q) => q.eq("eventId", event._id))

@@ -4,6 +4,8 @@ import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 
 import { api } from "../../convex/_generated/api";
+import { ShiftRow } from "@/components/shift-picker";
+import { STATION_LABELS, type Station } from "@/lib/types";
 import { PageShell } from "./page-shell";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,6 +61,7 @@ export default function DashboardPage() {
   const event = useQuery(api.events.active);
   const teams = useQuery(api.teams.listWithStatus);
   const matches = useQuery(api.matches.listForEvent);
+  const assignments = useQuery(api.assignments.mine);
 
   const total = teams?.length ?? 0;
   const pitDone = teams?.filter((t) => t.pitScouted).length ?? 0;
@@ -94,6 +97,69 @@ export default function DashboardPage() {
         </div>
       }
     >
+      {assignments?.upNext ? (
+        <Card>
+          <CardHeader>
+            <CardDescription>Up next</CardDescription>
+            <CardTitle className="flex flex-wrap items-baseline gap-3">
+              <span className="text-3xl tabular-nums">
+                Qual {assignments.upNext.matchNumber}
+              </span>
+              <span className={[
+                "rounded-md px-2 py-1 text-xs font-medium text-white",
+                assignments.upNext.station.startsWith("red") ? "bg-red-600" : "bg-blue-600",
+              ].join(" ")}>
+                {STATION_LABELS[assignments.upNext.station as Station]}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="-mt-4 space-y-3">
+            <p className="text-muted-foreground text-sm">
+              {assignments.upNext.teamNumber === null ? (
+                "That station has no team in the imported schedule."
+              ) : (
+                <>
+                  Team{" "}
+                  <span className="text-foreground font-medium tabular-nums">
+                    {assignments.upNext.teamNumber}
+                  </span>
+                  {assignments.upNext.nickname ? ` · ${assignments.upNext.nickname}` : ""}
+                  {" · "}
+                  {assignments.upNext.matchesAway === 0
+                    ? "now"
+                    : `${assignments.upNext.matchesAway} match${assignments.upNext.matchesAway === 1 ? "" : "es"} away`}
+                </>
+              )}
+            </p>
+            {assignments.upNext.teamNumber !== null ? (
+              <Button variant="secondary"
+                render={<Link to={`/scout/${assignments.upNext.matchNumber}/${assignments.upNext.teamNumber}`} />}>
+                Scout this robot
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {(assignments?.shifts ?? []).length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Your shifts</CardTitle>
+            <CardDescription>
+              Progress counts reports you have submitted in each range.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {(assignments?.shifts ?? []).map((shift) => (
+              <ShiftRow key={shift.assignmentId}
+                fromMatch={shift.fromMatch} toMatch={shift.toMatch}
+                station={shift.station as Station}
+                trailing={`${shift.done} of ${shift.total}`} />
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Pit scouted" value={`${pitDone}/${total}`}
           hint={total - pitDone > 0 ? `${total - pitDone} still to do` : "Complete"} />
