@@ -1,0 +1,272 @@
+import { useAction, useMutation, useQuery } from "convex/react";
+import { CheckCircle2, Download, LoaderCircle, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import { api } from "../../../convex/_generated/api";
+import { PageShell } from "@/routes/page-shell";
+import { RolesTable } from "./roles-table";
+import {
+  DeletionLog, FlaggedReports, ManageReports, PitReportsAdmin,
+} from "./reports-admin";
+import { Button } from "@/components/ui/button";
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+
+export default function AdminPage() {
+  const events = useQuery(api.events.list);
+  const importEvent = useAction(api.tba.importEvent);
+  const setActiveForTeam = useMutation(api.events.setActiveForTeam);
+  const settings = useQuery(api.events.teamSettings);
+  const removeEvent = useMutation(api.events.remove);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [confirmKey, setConfirmKey] = useState("");
+
+  const me = useQuery(api.profiles.me);
+  const isFullAdmin = me?.role === "admin";
+
+  const [teamFor, setTeamFor] = useState<number | null>(null);
+  const targetTeam = isFullAdmin ? teamFor : (me?.teamNumber ?? null);
+
+  const [eventKey, setEventKey] = useState("");
+  const [importing, setImporting] = useState(false);
+
+  const runImport = async () => {
+    setImporting(true);
+    try {
+      const result = await importEvent({ tbaEventKey: eventKey.trim() });
+      toast.success(`Imported ${result.name}`, {
+        description:
+          `${result.teamsAdded} teams added, ${result.teamsUpdated} updated. ` +
+          `${result.matchesAdded} matches added, ${result.matchesUpdated} updated.`,
+      });
+      if (result.teamsKept > 0) {
+        toast.warning(`${result.teamsKept} withdrawn team(s) kept`, {
+          description: "They have scouting data, so their reports were preserved.",
+        });
+      }
+      setEventKey("");
+    } catch (error) {
+      toast.error("Import failed", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <PageShell
+      title="Admin"
+      description="Event setup, scout roles and weighting."
+    >
+      {isFullAdmin ? (
+        <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Import an event</CardTitle>
+          <CardDescription>
+            Pulls teams and the qualification schedule from The Blue Alliance.
+            Safe to re-run whenever the schedule is revised.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="event-key">TBA event key</Label>
+            <div className="flex gap-2">
+              <Input
+                id="event-key"
+                placeholder="2026gadal"
+                value={eventKey}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(e) => setEventKey(e.target.value)}
+              />
+              <Button
+                disabled={importing || eventKey.trim() === ""}
+                onClick={() => void runImport()}
+              >
+                {importing ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <Download className="size-4" />
+                )}
+                Import
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              The API key lives on the Convex deployment, never in the browser.
+              Set it with <code>bunx convex env set TBA_API_KEY &lt;key&gt;</code>.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Events</CardTitle>
+          <CardDescription>
+            Every team picks its own event from this shared pool, so two teams
+            at different competitions can use one deployment. Standing an event
+            down changes nothing about its data.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {events === undefined ? (
+            <p className="text-muted-foreground text-sm">Loading…</p>
+          ) : events.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No events yet. Import one above.
+            </p>
+          ) : (
+            events.map((event) => (
+              <div
+                key={event._id}
+                className="flex flex-wrap items-center gap-3 rounded-lg border p-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-medium">{event.name}</span>
+                    {(event.activeForTeams ?? []).length > 0 ? (
+                      <Badge>
+                        <CheckCircle2 className="size-3" />
+                        Active for {(event.activeForTeams ?? []).join(", ")}
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    {event.tbaEventKey} · {event.teamCount} teams ·{" "}
+                    {event.matchCount} qualification matches
+                    {event.reportCount + event.pitCount > 0
+                      ? ` · ${event.reportCount} match / ${event.pitCount} pit reports`
+                      : ""}
+                  </p>
+                </div>
+                {targetTeam === null ? (
+                  <span className="text-muted-foreground text-xs">
+                    Pick a team below
+                  </span>
+                ) : event.activeForTeams?.includes(targetTeam) ? (
+                  <Button variant="outline" size="sm"
+                    onClick={() => void setActiveForTeam({
+                      eventId: null, teamNumber: targetTeam,
+                    })}>
+                    Stand down for {targetTeam}
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm"
+                    onClick={() => void setActiveForTeam({
+                      eventId: event._id, teamNumber: targetTeam,
+                    })}>
+                    Activate for {targetTeam}
+                  </Button>
+                )}
+                {event.removable ? (
+                  <Button variant="outline" size="sm"
+                    onClick={() => {
+                      setRemoving(removing === event._id ? null : event._id);
+                      setConfirmKey("");
+                    }}>
+                    <Trash2 className="size-3" /> Remove
+                  </Button>
+                ) : (
+                  <Badge variant="secondary" title="Events holding scouting data cannot be removed">
+                    {event.reportCount + event.pitCount} report
+                    {event.reportCount + event.pitCount === 1 ? "" : "s"}
+                  </Badge>
+                )}
+
+              {removing === event._id ? (
+                <div className="mt-1 w-full space-y-2 rounded-md border border-dashed p-3">
+                  <p className="text-muted-foreground text-xs">
+                    Removes {event.teamCount} teams and {event.matchCount}{" "}
+                    matches. Nothing scouted is lost because there is nothing
+                    scouted — re-import from TBA to get it back.
+                  </p>
+                  <Input
+                    placeholder={`Type ${event.tbaEventKey} to confirm`}
+                    value={confirmKey}
+                    autoCapitalize="none"
+                    onChange={(e) => setConfirmKey(e.target.value)}
+                  />
+                  <Button size="sm" variant="destructive"
+                    disabled={confirmKey.trim() !== event.tbaEventKey}
+                    onClick={() => {
+                      void removeEvent({ eventId: event._id })
+                        .then(() => {
+                          toast.success(`${event.name} removed`);
+                          setRemoving(null);
+                          setConfirmKey("");
+                        })
+                        .catch((error: unknown) =>
+                          toast.error("Could not remove", {
+                            description:
+                              error instanceof Error ? error.message : String(error),
+                          }));
+                    }}>
+                    Remove permanently
+                  </Button>
+                </div>
+              ) : null}
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+        </>
+      ) : null}
+
+      {isFullAdmin ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Configuring for</CardTitle>
+            <CardDescription>
+              Which team the activation buttons above apply to.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            {(settings ?? []).map((row) => (
+              <Button key={row.teamNumber} size="sm"
+                variant={targetTeam === row.teamNumber ? "default" : "outline"}
+                onClick={() => setTeamFor(row.teamNumber)}>
+                {row.teamNumber}
+                <span className="text-muted-foreground ml-1 text-xs">
+                  {row.eventKey ?? "none"}
+                </span>
+              </Button>
+            ))}
+            {me?.teamNumber !== undefined &&
+             !(settings ?? []).some((r) => r.teamNumber === me.teamNumber) ? (
+              <Button size="sm"
+                variant={targetTeam === me.teamNumber ? "default" : "outline"}
+                onClick={() => setTeamFor(me.teamNumber ?? null)}>
+                {me.teamNumber} (yours)
+              </Button>
+            ) : null}
+            {(settings ?? []).length === 0 && me?.teamNumber === undefined ? (
+              <p className="text-muted-foreground text-sm">
+                No team has chosen an event yet.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <RolesTable />
+
+      <FlaggedReports />
+
+      <ManageReports />
+
+      <PitReportsAdmin />
+
+      <DeletionLog />
+    </PageShell>
+  );
+}
