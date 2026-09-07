@@ -64,8 +64,6 @@ export default function AdminPage() {
       title="Admin"
       description="Event setup, scout roles and weighting."
     >
-      {isFullAdmin ? (
-        <>
       <Card>
         <CardHeader>
           <CardTitle>Import an event</CardTitle>
@@ -219,21 +217,24 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
-        </>
-      ) : null}
 
-      {isFullAdmin ? (
+      {me ? (
         <Card>
           <CardHeader>
-            <CardTitle>Configuring for</CardTitle>
+            <CardTitle>{isFullAdmin ? "Configuring for" : "Your team's event"}</CardTitle>
             <CardDescription>
-              Which team the activation buttons above apply to.
+              {isFullAdmin
+                ? "Which team the activation buttons above apply to."
+                : "Activations above apply to your team. Events themselves are shared — importing one makes it available to everyone."}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-2">
             {(settings ?? []).map((row) => (
               <Button key={row.teamNumber} size="sm"
                 variant={targetTeam === row.teamNumber ? "default" : "outline"}
+                // A team admin has exactly one option, so the button reports
+                // rather than selects.
+                disabled={!isFullAdmin}
                 onClick={() => setTeamFor(row.teamNumber)}>
                 {row.teamNumber}
                 <span className="text-muted-foreground ml-1 text-xs">

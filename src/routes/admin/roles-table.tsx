@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { ChevronDown, TriangleAlert, UserMinus, X } from "lucide-react";
+import { ChevronDown, TriangleAlert, Trash2, UserMinus, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -44,6 +44,7 @@ export function RolesTable() {
   const resolveJoin = useMutation(api.profiles.resolveJoin);
   const departures = useQuery(api.profiles.departures);
   const dismissDeparture = useMutation(api.profiles.dismissDeparture);
+  const deleteScout = useMutation(api.account.deleteScout);
 
   const [open, setOpen] = useState<PendingJoin | null>(null);
   const [openName, setOpenName] = useState("");
@@ -52,6 +53,11 @@ export function RolesTable() {
   const [teamFilter, setTeamFilter] = useState<number | "all">("all");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [teamSearch, setTeamSearch] = useState("");
+
+  const [manageOpen, setManageOpen] = useState(false);
+  const [manageSearch, setManageSearch] = useState("");
+  const [confirmName, setConfirmName] = useState("");
+  const [targetId, setTargetId] = useState<string | null>(null);
 
   const adminCount = profiles?.filter((p) => p.role === "admin").length ?? 0;
   // Only a full admin grants roles. A team admin sets trust levels for their
@@ -150,11 +156,16 @@ export function RolesTable() {
         <CardContent className="space-y-2">
           {canSetRoles && teamCounts.length > 0 ? (
             <div className="space-y-2">
-              <Button variant="outline" className="w-full justify-between"
+              <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 justify-between"
                 onClick={() => setPickerOpen(!pickerOpen)}>
                 {teamFilter === "all" ? "All teams" : `Team ${teamFilter}`}
                 <ChevronDown className={`size-4 transition-transform ${pickerOpen ? "rotate-180" : ""}`} />
               </Button>
+              <Button variant="outline" onClick={() => setManageOpen(true)}>
+                <Users className="size-4" /> Manage scouts
+              </Button>
+              </div>
 
               {pickerOpen ? (
                 <div className="space-y-1 rounded-lg border p-2">
@@ -310,6 +321,80 @@ export function RolesTable() {
           </div>
         </DialogContent>
       </Dialog>
+      <Dialog open={manageOpen} onOpenChange={(next) => {
+        if (!next) { setManageOpen(false); setTargetId(null); setConfirmName(""); }
+      }}>
+        <DialogContent className="max-h-[80vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Manage scouts</DialogTitle>
+            <DialogDescription>
+              Deleting a scout removes their sign-in. Everything they scouted
+              stays, attributed to a name that no longer resolves.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Input placeholder="Find a scout" value={manageSearch}
+            onChange={(e) => setManageSearch(e.target.value)} />
+
+          <div className="space-y-2">
+            {(profiles ?? [])
+              .filter((profile) =>
+                manageSearch.trim() === "" ||
+                profile.displayName.toLowerCase().includes(manageSearch.trim().toLowerCase()))
+              .map((profile) => (
+                <div key={profile._id} className="space-y-2 rounded-lg border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {profile.displayName}
+                    </span>
+                    {profile.role === "admin" ? (
+                      <Badge variant="secondary">Admin</Badge>
+                    ) : (
+                      <Button size="sm" variant="destructive"
+                        onClick={() => {
+                          setTargetId(targetId === profile._id ? null : profile._id);
+                          setConfirmName("");
+                        }}>
+                        <Trash2 className="size-3" /> Delete
+                      </Button>
+                    )}
+                  </div>
+
+                  {targetId === profile._id ? (
+                    <div className="space-y-2 rounded-md border border-dashed p-3">
+                      <p className="text-destructive text-xs">
+                        This removes their account permanently.
+                      </p>
+                      <Input placeholder={`Type ${profile.displayName} to confirm`}
+                        value={confirmName}
+                        onChange={(e) => setConfirmName(e.target.value)} />
+                      <Button size="sm" variant="destructive"
+                        disabled={busy || confirmName.trim() !== profile.displayName}
+                        onClick={() => {
+                          setBusy(true);
+                          void deleteScout({ profileId: profile._id })
+                            .then((r) => {
+                              toast.success(`${r.displayName} deleted`);
+                              setTargetId(null);
+                              setConfirmName("");
+                            })
+                            .catch((error: unknown) =>
+                              toast.error("Could not delete", {
+                                description:
+                                  error instanceof Error ? error.message : String(error),
+                              }))
+                            .finally(() => setBusy(false));
+                        }}>
+                        Delete permanently
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
+
