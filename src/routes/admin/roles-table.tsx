@@ -158,6 +158,14 @@ export function RolesTable() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
+          {/* Assigning shifts is a team admin's job. Filtering across teams and
+              deleting accounts are not, so those stay above. */}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setBatchOpen(true)}>
+              Batch assign shifts
+            </Button>
+          </div>
+
           {canSetRoles && teamCounts.length > 0 ? (
             <div className="space-y-2">
               <div className="flex gap-2">
@@ -168,9 +176,6 @@ export function RolesTable() {
               </Button>
               <Button variant="outline" onClick={() => setManageOpen(true)}>
                 <Users className="size-4" /> Manage scouts
-              </Button>
-              <Button variant="outline" onClick={() => setBatchOpen(true)}>
-                Batch assign shifts
               </Button>
               </div>
 
