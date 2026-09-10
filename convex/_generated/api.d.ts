@@ -30,6 +30,8 @@ import type * as merge from "../merge.js";
 import type * as pickLists from "../pickLists.js";
 import type * as pit from "../pit.js";
 import type * as profiles from "../profiles.js";
+import type * as refresh from "../refresh.js";
+import type * as statbotics from "../statbotics.js";
 import type * as stats from "../stats.js";
 import type * as tba from "../tba.js";
 import type * as teams from "../teams.js";
@@ -63,6 +65,8 @@ declare const fullApi: ApiFromModules<{
   pickLists: typeof pickLists;
   pit: typeof pit;
   profiles: typeof profiles;
+  refresh: typeof refresh;
+  statbotics: typeof statbotics;
   stats: typeof stats;
   tba: typeof tba;
   teams: typeof teams;

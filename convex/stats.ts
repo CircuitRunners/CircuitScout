@@ -170,6 +170,12 @@ export const forMatch = query({
     return {
       matchNumber: match.matchNumber,
       scheduledTime: match.scheduledTime,
+      predictedTime: match.predictedTime ?? null,
+      actualTime: match.actualTime ?? null,
+      redScore: match.redScore ?? null,
+      blueScore: match.blueScore ?? null,
+      winningAlliance: match.winningAlliance ?? "",
+      importedAt: loaded.event.importedAt,
       red: side(match.redTeamNumbers),
       blue: side(match.blueTeamNumbers),
     };

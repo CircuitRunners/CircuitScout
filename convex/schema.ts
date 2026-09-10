@@ -99,6 +99,25 @@ export default defineSchema({
     updatedBy: v.id("users"),
   }).index("by_team", ["teamNumber"]),
 
+  /**
+   * Statbotics EPA for one team at one event. Kept in its own table rather
+   * than on teams, so a refresh never touches imported TBA data and a failed
+   * fetch leaves the roster intact.
+   */
+  teamEpa: defineTable({
+    eventId: v.id("events"),
+    teamNumber: v.number(),
+    epa: v.number(),
+    autoEpa: v.union(v.number(), v.null()),
+    teleopEpa: v.union(v.number(), v.null()),
+    endgameEpa: v.union(v.number(), v.null()),
+    fetchedAt: v.number(),
+    /** Raw JSON for one team, so a wrong field path is diagnosable. */
+    sample: v.optional(v.string()),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_event_team", ["eventId", "teamNumber"]),
+
   teams: defineTable({
     eventId: v.id("events"),
     tbaTeamKey: v.string(),
@@ -118,6 +137,12 @@ export default defineSchema({
     redTeamNumbers: v.array(v.number()),
     blueTeamNumbers: v.array(v.number()),
     scheduledTime: v.union(v.number(), v.null()),
+    // From TBA. Optional because rows imported before this existed have none.
+    predictedTime: v.optional(v.union(v.number(), v.null())),
+    actualTime: v.optional(v.union(v.number(), v.null())),
+    redScore: v.optional(v.union(v.number(), v.null())),
+    blueScore: v.optional(v.union(v.number(), v.null())),
+    winningAlliance: v.optional(v.string()),
   })
     .index("by_event", ["eventId"])
     .index("by_event_number", ["eventId", "matchNumber"]),

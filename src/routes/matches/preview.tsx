@@ -83,6 +83,7 @@ function Actuals({ side, label }: { side: Robot[]; label: string }) {
 }
 
 export default function MatchPreviewPage() {
+  const epaData = useQuery(api.statbotics.forEvent);
   const params = useParams();
   const matchNumber = Number.parseInt(params.matchNumber ?? "", 10);
   const data = useQuery(
@@ -106,48 +107,170 @@ export default function MatchPreviewPage() {
     );
   }
 
+  const epaByTeam = new Map((epaData?.rows ?? []).map((r) => [r.teamNumber, r.epa]));
+  const epaSum = (side: Robot[]) =>
+    side.reduce((sum, r) => sum + (epaByTeam.get(r.teamNumber) ?? 0), 0);
+  const epaCovered = (side: Robot[]) =>
+    side.filter((r) => epaByTeam.has(r.teamNumber)).length;
+
   const redProjected = projected(data.red);
   const blueProjected = projected(data.blue);
+
+  const played = data.redScore !== null && data.blueScore !== null;
+  // Predicted time is TBA's live estimate and beats the original schedule
+  // once an event starts running late, which they always do.
+  const whenMs = data.actualTime ?? data.predictedTime ?? data.scheduledTime;
+  const when = whenMs === null ? null : new Date(whenMs);
 
   return (
     <PageShell
       title={`Qual ${data.matchNumber}`}
-      description="Season averages predict; the reports below record what actually happened."
+      description="Season averages predict; the reports below record what your scouts saw."
       actions={
         <Button variant="outline" render={<Link to="/matches" />}>
           <ArrowLeft className="size-4" /> All matches
         </Button>
       }
     >
-      <Card>
-        <CardHeader>
-          <CardTitle>Projected alliance output</CardTitle>
-          <CardDescription>
-            Sum of each robot's average total fuel and climb points. A crude
-            estimate that ignores defense, field interference and robots with
-            no data — treat it as a starting point, not a prediction.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex gap-6">
-          <div>
-            <p className="text-xs text-red-600 dark:text-red-400">Red</p>
-            <p className="text-3xl font-semibold tabular-nums">
-              {redProjected.toFixed(0)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-blue-600 dark:text-blue-400">Blue</p>
-            <p className="text-3xl font-semibold tabular-nums">
-              {blueProjected.toFixed(0)}
-            </p>
-          </div>
-          {data.red.concat(data.blue).some((r) => r.stats.reportCount === 0) ? (
-            <Badge variant="outline" className="self-center">
-              Some robots have no data
-            </Badge>
-          ) : null}
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle>Projected · scouter data</CardTitle>
+            <CardDescription>
+              Sum of each robot's average total fuel and climb points. A crude
+              estimate that ignores defense, field interference and robots with
+              no data — a starting point, not a prediction.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-6">
+            <div>
+              <p className="text-xs text-red-600 dark:text-red-400">Red</p>
+              <p className="text-3xl font-semibold tabular-nums">
+                {redProjected.toFixed(0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-blue-600 dark:text-blue-400">Blue</p>
+              <p className="text-3xl font-semibold tabular-nums">
+                {blueProjected.toFixed(0)}
+              </p>
+            </div>
+            {data.red.concat(data.blue).some((r) => r.stats.reportCount === 0) ? (
+              <Badge variant="outline">Some robots have no data</Badge>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Projected · EPA</CardTitle>
+            <CardDescription>
+              Statbotics EPA summed per alliance. Independent of your scouting,
+              so a wide gap between the two is worth a look rather than a
+              tiebreak.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-6">
+            {epaData === undefined ? (
+              <p className="text-muted-foreground text-sm">Loading…</p>
+            ) : epaByTeam.size === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No EPA yet — an admin can pull it from the Admin page.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <p className="text-xs text-red-600 dark:text-red-400">Red</p>
+                  <p className="text-3xl font-semibold tabular-nums">
+                    {epaSum(data.red).toFixed(0)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-blue-600 dark:text-blue-400">Blue</p>
+                  <p className="text-3xl font-semibold tabular-nums">
+                    {epaSum(data.blue).toFixed(0)}
+                  </p>
+                </div>
+                {epaCovered(data.red) + epaCovered(data.blue) < 6 ? (
+                  <Badge variant="outline">
+                    Only {epaCovered(data.red) + epaCovered(data.blue)} of 6 have EPA
+                  </Badge>
+                ) : null}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{played ? "Actual score" : "Scheduled"}</CardTitle>
+            <CardDescription>
+              {played
+                ? "Official result from The Blue Alliance, as of the last import."
+                : "Not played yet. Times from The Blue Alliance drift during an event."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-6">
+            {played ? (
+              <>
+                <div>
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    Red{data.winningAlliance === "red" ? " · won" : ""}
+                  </p>
+                  <p
+                    className={[
+                      "text-3xl tabular-nums",
+                      data.winningAlliance === "red" ? "font-bold" : "font-semibold",
+                    ].join(" ")}
+                  >
+                    {data.redScore}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                    Blue{data.winningAlliance === "blue" ? " · won" : ""}
+                  </p>
+                  <p
+                    className={[
+                      "text-3xl tabular-nums",
+                      data.winningAlliance === "blue" ? "font-bold" : "font-semibold",
+                    ].join(" ")}
+                  >
+                    {data.blueScore}
+                  </p>
+                </div>
+                {data.winningAlliance === "" ? (
+                  <Badge variant="outline">Tie</Badge>
+                ) : null}
+              </>
+            ) : (
+              <div>
+                <p className="text-2xl font-semibold">
+                  {when === null ? "Time unknown" : when.toLocaleTimeString([], {
+                    hour: "numeric", minute: "2-digit",
+                  })}
+                </p>
+                {when !== null ? (
+                  <p className="text-muted-foreground text-xs">
+                    {when.toLocaleDateString()}
+                    {data.predictedTime !== null ? " · predicted" : " · scheduled"}
+                  </p>
+                ) : null}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Scores are only as fresh as the last import — say so rather than
+          letting a stale number read as live. */}
+      <p className="text-muted-foreground text-xs">
+        Scores and times come from the last TBA import
+        {data.importedAt !== null
+          ? ` (${new Date(data.importedAt).toLocaleString()})`
+          : ""}
+        . An admin re-importing the event refreshes them.
+      </p>
 
       <h3 className="font-medium text-red-600 dark:text-red-400">Red alliance</h3>
       <CompareTable columns={data.red} />

@@ -151,6 +151,11 @@ const matchInput = v.object({
   redTeamNumbers: v.array(v.number()),
   blueTeamNumbers: v.array(v.number()),
   scheduledTime: v.union(v.number(), v.null()),
+  predictedTime: v.union(v.number(), v.null()),
+  actualTime: v.union(v.number(), v.null()),
+  redScore: v.union(v.number(), v.null()),
+  blueScore: v.union(v.number(), v.null()),
+  winningAlliance: v.string(),
 });
 
 /**
@@ -260,6 +265,11 @@ export const applyImport = internalMutation({
           redTeamNumbers: m.redTeamNumbers,
           blueTeamNumbers: m.blueTeamNumbers,
           scheduledTime: m.scheduledTime,
+          predictedTime: m.predictedTime,
+          actualTime: m.actualTime,
+          redScore: m.redScore,
+          blueScore: m.blueScore,
+          winningAlliance: m.winningAlliance,
         });
         matchesUpdated++;
       } else {
@@ -552,5 +562,50 @@ export const purgeNow = mutation({
       throw new Error("The event key does not match.");
     }
     return await purgeEventData(ctx, args.eventId);
+  },
+});
+
+/** Patches score and timing fields on existing matches. Adds nothing. */
+export const applyScores = internalMutation({
+  args: {
+    tbaEventKey: v.string(),
+    rows: v.array(v.object({
+      tbaMatchKey: v.string(),
+      scheduledTime: v.union(v.number(), v.null()),
+      predictedTime: v.union(v.number(), v.null()),
+      actualTime: v.union(v.number(), v.null()),
+      redScore: v.union(v.number(), v.null()),
+      blueScore: v.union(v.number(), v.null()),
+      winningAlliance: v.string(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const event = await ctx.db
+      .query("events")
+      .withIndex("by_key", (q) => q.eq("tbaEventKey", args.tbaEventKey))
+      .unique();
+    if (!event) return { updated: 0 };
+
+    const matches = await ctx.db
+      .query("matches")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .collect();
+    const byKey = new Map(matches.map((m) => [m.tbaMatchKey, m]));
+
+    let updated = 0;
+    for (const row of args.rows) {
+      const match = byKey.get(row.tbaMatchKey);
+      if (!match) continue;
+      await ctx.db.patch(match._id, {
+        scheduledTime: row.scheduledTime,
+        predictedTime: row.predictedTime,
+        actualTime: row.actualTime,
+        redScore: row.redScore,
+        blueScore: row.blueScore,
+        winningAlliance: row.winningAlliance,
+      });
+      updated += 1;
+    }
+    return { updated };
   },
 });

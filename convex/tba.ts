@@ -23,12 +23,20 @@ type TbaMatch = {
   comp_level: string;
   match_number: number;
   alliances: {
-    red: { team_keys: string[] };
-    blue: { team_keys: string[] };
+    red: { team_keys: string[]; score: number | null };
+    blue: { team_keys: string[]; score: number | null };
   };
+  winning_alliance?: string | null;
   time: number | null;
   predicted_time?: number | null;
+  actual_time?: number | null;
 };
+
+/** TBA sends epoch seconds, and -1 for a score that does not exist yet. */
+const seconds = (v: number | null | undefined): number | null =>
+  v === null || v === undefined ? null : v * 1000;
+const score = (v: number | null | undefined): number | null =>
+  v === null || v === undefined || v < 0 ? null : v;
 
 async function tbaFetch<T>(path: string): Promise<T> {
   const apiKey = process.env.TBA_API_KEY;
@@ -119,7 +127,12 @@ export const importEvent = action({
         redTeamNumbers: m.alliances.red.team_keys.map(teamNumberFromKey),
         blueTeamNumbers: m.alliances.blue.team_keys.map(teamNumberFromKey),
         // TBA reports epoch seconds; the app works in milliseconds throughout.
-        scheduledTime: m.time !== null && m.time !== undefined ? m.time * 1000 : null,
+        scheduledTime: seconds(m.time),
+        predictedTime: seconds(m.predicted_time),
+        actualTime: seconds(m.actual_time),
+        redScore: score(m.alliances.red.score),
+        blueScore: score(m.alliances.blue.score),
+        winningAlliance: m.winning_alliance ?? "",
       })),
     });
   },
@@ -170,5 +183,32 @@ export const claimProfile = action({
     });
 
     return { nickname: team.nickname ?? `Team ${args.teamNumber}` };
+  },
+});
+
+/**
+ * Re-reads only the qualification schedule and patches scores and times.
+ * Deliberately not a full import: teams and match pairings do not change every
+ * few minutes, and rewriting them during an event risks disturbing rows that
+ * scouting data points at.
+ */
+export const refreshScores = action({
+  args: { eventKey: v.string() },
+  handler: async (ctx, args): Promise<{ updated: number }> => {
+    const matches = await tbaFetch<TbaMatch[]>(`/event/${args.eventKey}/matches/simple`);
+    const quals = matches.filter((m) => m.comp_level === "qm");
+
+    return await ctx.runMutation(internal.events.applyScores, {
+      tbaEventKey: args.eventKey,
+      rows: quals.map((m) => ({
+        tbaMatchKey: m.key,
+        scheduledTime: seconds(m.time),
+        predictedTime: seconds(m.predicted_time),
+        actualTime: seconds(m.actual_time),
+        redScore: score(m.alliances.red.score),
+        blueScore: score(m.alliances.blue.score),
+        winningAlliance: m.winning_alliance ?? "",
+      })),
+    });
   },
 });

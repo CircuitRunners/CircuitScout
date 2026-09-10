@@ -26,6 +26,12 @@ const CLIMB_LABEL: Record<string, string> = {
   none: "—", low: "L1", mid: "L2", high: "L3",
 };
 
+function useEpa(teamNumber: number | null) {
+  const data = useQuery(api.statbotics.forEvent);
+  if (teamNumber === null) return null;
+  return data?.rows.find((r) => r.teamNumber === teamNumber) ?? null;
+}
+
 export function TeamDetail({
   teamNumber,
   onClose,
@@ -40,6 +46,7 @@ export function TeamDetail({
     api.teams.detail,
     teamNumber === null ? "skip" : { teamNumber },
   );
+  const epa = useEpa(teamNumber);
 
   return (
     <Dialog open={teamNumber !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -69,6 +76,17 @@ export function TeamDetail({
             {/* Report count sits next to the averages deliberately: an average
                 over two matches and one over eleven are not comparable, and a
                 bare number invites treating them as if they were. */}
+              {epa ? (
+                <div className="rounded-lg border p-3">
+                  <p className="text-muted-foreground text-xs">EPA</p>
+                  <p className="text-xl font-semibold tabular-nums">
+                    {epa.epa.toFixed(1)}
+                  </p>
+                  <p className="text-muted-foreground text-[10px]">
+                    Statbotics, not your scouting
+                  </p>
+                </div>
+              ) : null}
             <div className="flex items-baseline gap-2">
               <h3 className="font-medium">Averages</h3>
               <span className="text-muted-foreground text-xs">

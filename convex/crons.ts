@@ -12,4 +12,14 @@ crons.interval(
   {},
 );
 
+// Statbotics recomputes as matches are played, so this follows the event
+// rather than the schedule release. Two hours is often enough to be current
+// without hammering a free API.
+crons.interval(
+  "refresh statbotics and tba",
+  { hours: 2 },
+  internal.refresh.scheduled,
+  {},
+);
+
 export default crons;
