@@ -55,13 +55,13 @@ export function AppNav() {
           <Menu className="size-5" />
         </Button>
 
-        <NavLink to="/" className="flex items-center gap-2 font-semibold tracking-tight">
-          <img
+        <NavLink to="/" className="text-muted-foreground flex items-center gap-2 font-semibold tracking-tight">          
+        <img
             src="/logo.png"
             alt=""
             className="size-6 shrink-0"
             onError={(e) => { e.currentTarget.style.display = "none"; }}
-          />
+        />
           CircuitScout
         </NavLink>
 

@@ -17,6 +17,7 @@ import ScoutLandingPage from "./scout/index";
 import MatchFormPage from "./scout/form";
 import TeamsPage from "./teams/index";
 import ComparePage from "./teams/compare";
+import PlotPage from "./teams/plot";
 import MatchesPage from "./matches/index";
 import MatchPreviewPage from "./matches/preview";
 import PickListsPage from "./picklists/index";
@@ -51,6 +52,7 @@ export const router = createBrowserRouter([
 
               { path: "teams", element: <TeamsPage /> },
               { path: "teams/compare", element: <ComparePage /> },
+              { path: "teams/plot", element: <PlotPage /> },
 
               { path: "matches", element: <MatchesPage /> },
               { path: "archive", element: <ArchivePage /> },

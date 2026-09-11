@@ -39,6 +39,7 @@ const reportInput = {
     climb: v.union(v.literal("none"), v.literal("low"),
                    v.literal("mid"), v.literal("high")),
     fuel: v.number(),
+    stoleFuel: v.number(),
     passedNeutral: v.number(),
     passedFullField: v.number(),
     notes: v.string(),

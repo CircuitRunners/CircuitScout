@@ -1,5 +1,7 @@
 import { useMutation, useQuery } from "convex/react";
-import { AlertTriangle, EyeOff, History, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import {
+  AlertTriangle, Check, EyeOff, History, Pencil, RotateCcw, Trash2, Wrench,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -485,6 +487,140 @@ export function DeletionLog() {
                 </pre>
               ) : null}
             </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+type AttentionRow = {
+  reportId: string;
+  kind: "broke" | "inconsistent";
+  teamNumber: number;
+  nickname: string;
+  matchNumber: number;
+  scoutName: string;
+  detail: string;
+};
+
+function AttentionRowCard({ row }: { row: AttentionRow }) {
+  const settle = useMutation(api.admin.settleAttention);
+  const [mode, setMode] = useState<"none" | "dismissed" | "resolved">("none");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const detail = row.detail.trim();
+  const long = detail.length > 90;
+
+  const run = () => {
+    if (mode === "none") return;
+    setBusy(true);
+    void settle({
+      reportId: row.reportId as Id<"matchReports">,
+      kind: row.kind,
+      state: mode,
+      note,
+    })
+      .then(() => toast.success(mode === "resolved" ? "Marked resolved" : "Dismissed"))
+      .catch((error: unknown) =>
+        toast.error("Failed", {
+          description: error instanceof Error ? error.message : String(error),
+        }))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="destructive" className="text-xs">
+          <AlertTriangle className="size-3" />
+          {row.kind === "broke" ? "Broke down" : "Inconsistent"}
+        </Badge>
+        <span className="font-semibold tabular-nums">{row.teamNumber}</span>
+        <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+          {row.nickname} · Qual {row.matchNumber} · {row.scoutName}
+        </span>
+      </div>
+
+      {detail ? (
+        <p
+          className={[
+            "text-sm",
+            long && !expanded ? "line-clamp-1 cursor-pointer" : "",
+          ].join(" ")}
+          title={long ? detail : undefined}
+          onClick={() => long && setExpanded(!expanded)}
+        >
+          {detail}
+        </p>
+      ) : (
+        <p className="text-muted-foreground text-sm italic">
+          No reason given — worth asking the scout before acting on it.
+        </p>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="secondary"
+          onClick={() => { setMode(mode === "resolved" ? "none" : "resolved"); setNote(""); }}>
+          <Wrench className="size-3" /> Resolve
+        </Button>
+        <Button size="sm" variant="outline"
+          onClick={() => { setMode(mode === "dismissed" ? "none" : "dismissed"); setNote(""); }}>
+          <EyeOff className="size-3" /> Dismiss
+        </Button>
+      </div>
+
+      {mode !== "none" ? (
+        <div className="space-y-2 rounded-md border border-dashed p-3">
+          <p className="text-muted-foreground text-xs">
+            {mode === "resolved"
+              ? "Resolved says the problem was dealt with — a repair, a rematch, a conversation."
+              : "Dismissed says it was not really a problem."}{" "}
+            Either way the note is what the next person reads.
+          </p>
+          <Input placeholder="What happened? (required)" value={note}
+            onChange={(e) => setNote(e.target.value)} />
+          <Button size="sm" variant={mode === "resolved" ? "secondary" : "default"}
+            disabled={busy || note.trim() === ""} onClick={run}>
+            <Check className="size-3" /> Confirm
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function TeamsNeedingAttention() {
+  const rows = useQuery(api.admin.attentionItems);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          Teams needing attention
+          {(rows ?? []).length > 0 ? (
+            <Badge variant="destructive" className="ml-2">{rows?.length}</Badge>
+          ) : null}
+        </CardTitle>
+        <CardDescription>
+          Robots a scout saw break down or behave inconsistently. These are
+          facts about a robot, not doubts about the data — an unread one is a
+          pick nobody warned you about.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows === undefined ? (
+          <p className="text-muted-foreground text-sm">Loading…</p>
+        ) : rows.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            Nothing outstanding.
+          </p>
+        ) : (
+          rows.map((row) => (
+            <AttentionRowCard key={`${row.reportId}-${row.kind}`}
+              row={row as AttentionRow} />
           ))
         )}
       </CardContent>

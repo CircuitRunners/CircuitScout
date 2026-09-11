@@ -90,6 +90,7 @@ export default function MatchFormPage() {
   const [endFuel, setEndFuel] = useState(0);
   const [ePassedNeutral, setEPassedNeutral] = useState(0);
   const [ePassedFull, setEPassedFull] = useState(0);
+  const [endStole, setEndStole] = useState(0);
   const [endNotes, setEndNotes] = useState("");
   const [finalNotes, setFinalNotes] = useState("");
 
@@ -133,6 +134,7 @@ export default function MatchFormPage() {
     setEndFuel(editing.endgame.fuel);
     setEPassedNeutral(editing.endgame.passedNeutral);
     setEPassedFull(editing.endgame.passedFullField);
+    setEndStole(editing.endgame.stoleFuel ?? 0);
     setEndNotes(editing.endgame.notes);
     setFinalNotes(editing.finalNotes ?? "");
     setDriver(editing.ratings.driver);
@@ -211,6 +213,7 @@ export default function MatchFormPage() {
           climb, fuel: endFuel,
           passedNeutral: ePassedNeutral,
           passedFullField: ePassedFull,
+          stoleFuel: endStole,
           notes: endNotes,
         },
         ratings: {
@@ -335,7 +338,8 @@ export default function MatchFormPage() {
             <CardHeader><CardTitle>Auto scoring</CardTitle></CardHeader>
             <CardContent className="space-y-6">
               <Stepper label="Fuel scored" value={autoFuel} onChange={setAutoFuel} />
-              <Stepper label="Fouls" value={autoFouls} onChange={setAutoFouls} />
+              <Stepper label="Fouls" value={autoFouls} onChange={setAutoFouls}
+                downSteps={[-15, -5]} upSteps={[5, 15]} />
               <Textarea placeholder="Auto notes" rows={2}
                 value={autoNotes} onChange={(e) => setAutoNotes(e.target.value)} />
             </CardContent>
@@ -398,6 +402,7 @@ export default function MatchFormPage() {
                 value={ePassedNeutral} onChange={setEPassedNeutral} />
               <Stepper label="Passed full field"
                 value={ePassedFull} onChange={setEPassedFull} />
+              <Stepper label="Stole fuel" value={endStole} onChange={setEndStole} />
               <Textarea placeholder="Endgame notes" rows={2}
                 value={endNotes} onChange={(e) => setEndNotes(e.target.value)} />
             </CardContent>

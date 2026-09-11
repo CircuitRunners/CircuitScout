@@ -225,6 +225,7 @@ export default defineSchema({
       climb: v.union(v.literal("none"), v.literal("low"),
                      v.literal("mid"), v.literal("high")),
       fuel: v.number(),
+      stoleFuel: v.optional(v.number()),
       passedNeutral: v.number(),
       passedFullField: v.number(),
       notes: v.string(),
@@ -283,6 +284,8 @@ export default defineSchema({
   flagDismissals: defineTable({
     reportId: v.id("matchReports"),
     reason: v.string(),
+    /** "resolved" means someone fixed it; "dismissed" means it was fine. */
+    state: v.optional(v.union(v.literal("dismissed"), v.literal("resolved"))),
     note: v.string(),
     dismissedBy: v.id("users"),
     dismissedAt: v.number(),

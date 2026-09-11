@@ -64,9 +64,14 @@ export default function TeamsPage() {
           : `${teams.length} teams at this event. Tap one for its full record.`
       }
       actions={
-        <Button variant="outline" render={<Link to="/teams/compare" />}>
-          Compare teams
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button variant="outline" render={<Link to="/teams/compare" />}>
+            Compare teams
+          </Button>
+          <Button variant="outline" render={<Link to="/teams/plot" />}>
+            Data plot
+          </Button>
+        </div>
       }
     >
       <div className="flex flex-wrap items-center gap-2">

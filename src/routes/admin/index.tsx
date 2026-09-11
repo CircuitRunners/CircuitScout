@@ -9,6 +9,7 @@ import { PageShell } from "@/routes/page-shell";
 import { RolesTable } from "./roles-table";
 import {
   DeletionLog, FlaggedReports, ManageReports, PitReportsAdmin,
+  TeamsNeedingAttention,
 } from "./reports-admin";
 import { Button } from "@/components/ui/button";
 import {
@@ -458,6 +459,8 @@ export default function AdminPage() {
       </Card>
 
       <RolesTable />
+
+      <TeamsNeedingAttention />
 
       <FlaggedReports />
 
