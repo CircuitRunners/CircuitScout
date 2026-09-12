@@ -62,6 +62,7 @@ export function RolesTable() {
   const [assignId, setAssignId] = useState<Id<"profiles"> | null>(null);
   const [assignName, setAssignName] = useState("");
   const [batchOpen, setBatchOpen] = useState(false);
+  const [scoutSearch, setScoutSearch] = useState("");
 
   const adminCount = profiles?.filter((p) => p.role === "admin").length ?? 0;
   // Only a full admin grants roles. A team admin sets trust levels for their
@@ -92,12 +93,19 @@ export function RolesTable() {
     return [...counts.entries()].sort((a, b) => a[0] - b[0]);
   }, [profiles]);
 
-  const visible = useMemo(
-    () => (teamFilter === "all"
+  const visible = useMemo(() => {
+    const byTeam = teamFilter === "all"
       ? sorted
-      : sorted.filter((p) => p.teamNumber === teamFilter)),
-    [sorted, teamFilter],
-  );
+      : sorted.filter((p) => p.teamNumber === teamFilter);
+    const needle = scoutSearch.trim().toLowerCase();
+    if (needle === "") return byTeam;
+    // Team number matches too — a full admin looking across several teams can
+    // type either, and it costs nothing.
+    return byTeam.filter((p) =>
+      p.displayName.toLowerCase().includes(needle) ||
+      String(p.teamNumber ?? "").includes(needle),
+    );
+  }, [sorted, teamFilter, scoutSearch]);
 
   const noTeamCount = (profiles ?? []).filter((p) => p.teamNumber === undefined).length;
   const pendingCount = sorted.filter((p) => p.pendingJoin).length;
@@ -164,6 +172,13 @@ export function RolesTable() {
             <Button variant="outline" onClick={() => setBatchOpen(true)}>
               Batch assign shifts
             </Button>
+            {/* Deliberately outside the canSetRoles gate below — a team admin
+                looking for one of their own scouts needs this as much as a
+                full admin does. */}
+            <Input className="flex-1" placeholder="Search scouts"
+              aria-label="Search scouts by name"
+              value={scoutSearch}
+              onChange={(e) => setScoutSearch(e.target.value)} />
           </div>
 
           {canSetRoles && teamCounts.length > 0 ? (
@@ -245,6 +260,12 @@ export function RolesTable() {
 
           {profiles === undefined ? (
             <p className="text-muted-foreground text-sm">Loading…</p>
+          ) : visible.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              {scoutSearch.trim() === ""
+                ? "No scouts here yet."
+                : `No scouts match “${scoutSearch.trim()}”.`}
+            </p>
           ) : (
             visible.map((profile) => {
               const isSelf = me?._id === profile._id;

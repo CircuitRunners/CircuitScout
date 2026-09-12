@@ -90,14 +90,18 @@ function Column({
   return (
     <div ref={setNodeRef}
       className={[
-        "min-h-32 min-w-64 flex-1 space-y-2 rounded-lg border p-2 transition-colors",
+        "flex max-h-[70vh] min-h-32 min-w-64 flex-1 flex-col gap-2 rounded-lg border p-2 transition-colors",
         isOver ? "bg-accent border-secondary" : "",
       ].join(" ")}>
-      <div className="flex items-center justify-between px-1">
+      <div className="flex shrink-0 items-center justify-between px-1">
         <span className="text-sm font-medium">{TIER_LABELS[tier]}</span>
         <span className="text-muted-foreground text-xs tabular-nums">{rows.length}</span>
       </div>
-      {children}
+      {/* The cards scroll, the heading stays put — a column you cannot see the
+          name of is hard to drop into with any confidence. */}
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
+        {children}
+      </div>
     </div>
   );
 }
@@ -111,6 +115,8 @@ export default function PickListBoardPage() {
   const teams = useQuery(api.teams.listWithStatus);
   const stats = useQuery(api.stats.forEvent);
   const move = useMutation(api.entries.move);
+  const picked = useQuery(api.picked.forEvent);
+  const togglePicked = useMutation(api.picked.toggle);
 
   const sort = useUIStore((s) => s.uncategorizedSort);
   const setSort = useUIStore((s) => s.setUncategorizedSort);
@@ -120,6 +126,7 @@ export default function PickListBoardPage() {
   const [overTier, setOverTier] = useState<Tier | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [showPicked, setShowPicked] = useState(false);
 
   // pointerWithin resolves a column the pointer is actually inside, which is
   // what makes a drop onto empty space in a tier work. closestCorners is the
@@ -171,16 +178,31 @@ export default function PickListBoardPage() {
           sort.direction === "asc" ? value(a) - value(b) : value(b) - value(a));
       }
     }
+    const pickedSet = new Set(picked ?? []);
+    if (!showPicked) {
+      for (const [tier, rows] of map) {
+        map.set(tier, rows.filter((r) => !pickedSet.has(r.teamId)));
+      }
+    }
+
     const needle = search.trim().toLowerCase();
     if (needle !== "") {
+      const hit = (r: Row) =>
+        String(r.teamNumber).includes(needle) ||
+        r.nickname.toLowerCase().includes(needle);
+
       for (const [tier, rows] of map) {
-        map.set(tier, rows.filter((r) =>
-          String(r.teamNumber).includes(needle) ||
-          r.nickname.toLowerCase().includes(needle)));
+        if (tier === "uncategorized") {
+          // Float matches to the top rather than hiding the rest: every card
+          // stays present, so a drop still lands between real neighbours.
+          map.set(tier, [...rows].sort((a, b) => Number(hit(b)) - Number(hit(a))));
+        } else {
+          map.set(tier, rows.filter(hit));
+        }
       }
     }
     return map;
-  }, [entries, sort, stats, search]);
+  }, [entries, sort, stats, search, picked, showPicked]);
 
   const searching = search.trim() !== "";
   const selectedRow = ((entries ?? []) as Row[]).find(
@@ -257,7 +279,6 @@ export default function PickListBoardPage() {
   return (
     <PageShell
       title={list.name}
-      description="Tier 1 is highest. Drag by the grip to move a team between tiers."
       actions={
         <div className="flex flex-wrap gap-2">
           {!list.canEdit ? <Badge variant="outline">Read only</Badge> : null}
@@ -270,12 +291,6 @@ export default function PickListBoardPage() {
       <div className="flex flex-wrap items-center gap-2">
         <Input className="max-w-56" placeholder="Find a team"
           value={search} onChange={(e) => setSearch(e.target.value)} />
-        {searching ? (
-          <span className="text-muted-foreground text-xs">
-            Dragging is off while searching — a card would land next to hidden
-            neighbours.
-          </span>
-        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -312,6 +327,22 @@ export default function PickListBoardPage() {
         ) : null}
       </div>
 
+      {/* Everyone can hide or reveal picked teams on the list they are looking
+          at. Only the primary list carries the tick that SETS them, since that
+          records what the team actually did in the draft. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant={showPicked ? "secondary" : "outline"}
+          onClick={() => setShowPicked(!showPicked)}>
+          Show picked {showPicked ? "✓" : ""}
+        </Button>
+        <span className="text-muted-foreground text-xs">
+          {(picked ?? []).length} taken
+          {list.isPrimary && list.canEdit
+            ? " · tick a team to mark it picked"
+            : " · marked on the team primary list"}
+        </span>
+      </div>
+
       <DndContext sensors={sensors} collisionDetection={collision}
         onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
         <div className="flex gap-3 overflow-x-auto pb-2">
@@ -329,7 +360,22 @@ export default function PickListBoardPage() {
                       nickname={row.nickname}
                       pitScouted={pitByTeam.get(row.teamId) ?? false}
                       stats={statFor(row.teamId)}
-                      draggable={list.canEdit && !searching}
+                      draggable={
+                        list.canEdit && (!searching || row.tier === "uncategorized")
+                      }
+                      picked={(picked ?? []).includes(row.teamId)}
+                      onTogglePicked={
+                        list.isPrimary && list.canEdit
+                          ? () => {
+                              void togglePicked({ teamId: row.teamId as Id<"teams"> })
+                                .catch((error: unknown) =>
+                                  toast.error("Could not update", {
+                                    description:
+                                      error instanceof Error ? error.message : String(error),
+                                  }));
+                            }
+                          : undefined
+                      }
                       note={row.note}
                       needsNote={(row.tier === "t1" || row.tier === "dnp") && row.note.trim() === ""}
                       onOpen={() => setSelectedTeam(row.teamNumber)}

@@ -1,8 +1,11 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, MessageSquare, MessageSquareWarning } from "lucide-react";
+import {
+  Check, GripVertical, MessageSquare, MessageSquareWarning,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 export type ChipStats = {
   reportCount: number;
@@ -23,6 +26,8 @@ export function TeamChip({
   draggable,
   note,
   needsNote,
+  picked = false,
+  onTogglePicked,
   onOpen,
 }: {
   entryId: string;
@@ -33,6 +38,8 @@ export function TeamChip({
   draggable: boolean;
   note: string;
   needsNote: boolean;
+  picked?: boolean;
+  onTogglePicked?: () => void;
   onOpen: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -68,6 +75,14 @@ export function TeamChip({
           <MessageSquareWarning className="text-destructive size-4 shrink-0" />
         ) : note ? (
           <MessageSquare className="text-muted-foreground size-4 shrink-0" />
+        ) : null}
+        {onTogglePicked ? (
+          <Button size="icon" variant={picked ? "secondary" : "ghost"}
+            className="size-6 shrink-0"
+            aria-label={picked ? `Unmark ${teamNumber} as picked` : `Mark ${teamNumber} as picked`}
+            onClick={(e) => { e.stopPropagation(); onTogglePicked(); }}>
+            <Check className="size-3.5" />
+          </Button>
         ) : null}
         <Badge variant={pitScouted ? "secondary" : "outline"} className="shrink-0 text-[10px]">
           {pitScouted ? "Pit" : "No pit"}

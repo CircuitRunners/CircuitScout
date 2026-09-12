@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { Check, GitMerge, ListPlus, Lock, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -25,14 +25,18 @@ export default function PickListsPage() {
   const setSubmitted = useMutation(api.pickLists.setSubmitted);
   const unsubmit = useMutation(api.pickLists.unsubmit);
   const ensurePrimary = useMutation(api.pickLists.ensurePrimary);
-  const populatePrimary = useMutation(api.pickLists.populatePrimary);
   const navigate = useNavigate();
-
+  
   const isAnyAdmin =
     profile?.role === "admin" || profile?.role === "teamAdmin";
 
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const syncPrimary = useMutation(api.pickLists.syncPrimary);
+  useEffect(() => {
+    void syncPrimary({});
+  }, [syncPrimary]);
 
   const add = async () => {
     setBusy(true);
@@ -110,19 +114,6 @@ export default function PickListsPage() {
               </span>
               {!isAnyAdmin ? (
                 <Badge variant="outline"><Lock className="size-3" /> Read only</Badge>
-              ) : null}
-              {isAnyAdmin && primary.total === 0 ? (
-                <Button size="sm" variant="secondary"
-                  onClick={() => {
-                    void populatePrimary({})
-                      .then((r) => toast.success(`${r.added} teams added`))
-                      .catch((error: unknown) =>
-                        toast.error("Could not populate", {
-                          description: error instanceof Error ? error.message : String(error),
-                        }));
-                  }}>
-                  Add all teams
-                </Button>
               ) : null}
               <Button size="sm" variant="outline"
                 render={<Link to={`/picklists/${primary._id}`} />}>

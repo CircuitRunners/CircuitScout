@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { AlertTriangle, Pencil, Wrench } from "lucide-react";
 
 import { api } from "../../../convex/_generated/api";
+import { AttentionCard, type AttentionRow } from "@/components/attention-items";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -47,6 +48,8 @@ export function TeamDetail({
     teamNumber === null ? "skip" : { teamNumber },
   );
   const epa = useEpa(teamNumber);
+  const attention = useQuery(api.attention.forEvent);
+  const mine = (attention ?? []).filter((row) => row.teamNumber === teamNumber);
 
   return (
     <Dialog open={teamNumber !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -72,6 +75,15 @@ export function TeamDetail({
                 .filter(Boolean)
                 .join(", ")}
             </p>
+
+            {mine.length > 0 ? (
+              <div className="space-y-2">
+                {mine.map((row) => (
+                  <AttentionCard key={`${row.reportId}-${row.kind}`}
+                    row={row as AttentionRow} />
+                ))}
+              </div>
+            ) : null}
 
             {/* Report count sits next to the averages deliberately: an average
                 over two matches and one over eleven are not comparable, and a

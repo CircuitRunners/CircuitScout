@@ -191,9 +191,12 @@ export const ensurePrimary = mutation({
         q.eq("eventId", event._id).eq("ownerId", null))
       .collect();
     const existing = lists.find((l) => l.teamNumber === me.teamNumber);
-    if (existing) return existing._id;
+    if (existing) {
+      await seedPrimaryEntries(ctx, event._id, existing._id);
+      return existing._id;
+    }
 
-    return await ctx.db.insert("pickLists", {
+    const listId = await ctx.db.insert("pickLists", {
       eventId: event._id,
       ownerId: null,
       teamNumber: me.teamNumber,
@@ -202,8 +205,52 @@ export const ensurePrimary = mutation({
       isSubmitted: false,
       createdAt: Date.now(),
     });
+
+    await seedPrimaryEntries(ctx, event._id, listId);
+    return listId;
   },
 });
+
+/**
+ * Puts every team on a primary list that is missing them. The primary list has
+ * no owner to notice a gap, so it keeps itself in step rather than waiting for
+ * an admin to press a button they may not know exists.
+ *
+ * Idempotent — teams already on the list are skipped, and ordering of existing
+ * entries is never disturbed. Safe to call on every open.
+ */
+export async function seedPrimaryEntries(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  listId: Id<"pickLists">,
+) {
+  const existing = await ctx.db
+    .query("pickListEntries")
+    .withIndex("by_list", (q) => q.eq("pickListId", listId))
+    .collect();
+  const have = new Set(existing.map((e) => e.teamId));
+  let order = existing.reduce((max, e) => Math.max(max, e.order), 0);
+
+  const teams = await ctx.db
+    .query("teams")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .collect();
+  teams.sort((a, b) => a.number - b.number);
+
+  let added = 0;
+  for (const team of teams) {
+    if (have.has(team._id)) continue;
+    order += 1000;
+    await ctx.db.insert("pickListEntries", {
+      pickListId: listId,
+      teamId: team._id,
+      tier: "uncategorized",
+      order,
+    });
+    added += 1;
+  }
+  return added;
+}
 
 export const rename = mutation({
   args: { listId: v.id("pickLists"), name: v.string() },
@@ -419,5 +466,34 @@ export const claimOrphanPrimary = mutation({
       name: `Team ${me.teamNumber} primary list`,
     });
     return { teamNumber: me.teamNumber };
+  },
+});
+
+/**
+ * Reconciles the team primary list against the teams currently imported from
+ * TBA. Safe for anyone on the team to call, as often as they like: it only
+ * ever adds missing teams to Uncategorized, never reorders or removes.
+ */
+export const syncPrimary = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const event = await activeEvent(ctx);
+    if (!event) return { added: 0 };
+    const me = await currentProfile(ctx);
+    if (!me) return { added: 0 };
+
+    const list = await ctx.db
+      .query("pickLists")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("ownerId"), null),
+          q.eq(q.field("teamNumber"), me.teamNumber),
+        ),
+      )
+      .first();
+    if (!list) return { added: 0 };
+
+    return { added: await seedPrimaryEntries(ctx, event._id, list._id) };
   },
 });

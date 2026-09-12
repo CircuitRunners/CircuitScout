@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { AttentionBadge } from "@/components/attention-items";
 import { TIER_LABELS, type Tier } from "@/lib/types";
 
 /**
@@ -12,6 +13,7 @@ export function TeamCard({
   pitScouted,
   reportCount,
   tier,
+  attention = 0,
   onClick,
 }: {
   number: number;
@@ -19,6 +21,7 @@ export function TeamCard({
   pitScouted: boolean;
   reportCount: number;
   tier?: Tier;
+  attention?: number;
   onClick?: () => void;
 }) {
   const Wrapper = onClick ? "button" : "div";
@@ -30,6 +33,7 @@ export function TeamCard({
       <span className="w-14 shrink-0 text-lg font-semibold tabular-nums">{number}</span>
       <span className="min-w-0 flex-1 truncate text-sm">{nickname}</span>
       <div className="flex shrink-0 items-center gap-1.5">
+        <AttentionBadge count={attention} />
         {tier && tier !== "uncategorized" ? (
           <Badge variant="secondary">{TIER_LABELS[tier]}</Badge>
         ) : null}

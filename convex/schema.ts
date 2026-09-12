@@ -118,6 +118,23 @@ export default defineSchema({
     .index("by_event", ["eventId"])
     .index("by_event_team", ["eventId", "teamNumber"]),
 
+  /**
+   * The most recent export by one team admin, for one event. One row per
+   * person per event, overwritten each time — only the latest matters, and an
+   * unbounded download log is not worth the storage. Keeping the event in the
+   * key is what lets each event carry its own cooldown, so moving between two
+   * competitions does not hand anyone a fresh window on either.
+   *
+   * Full admins are never recorded; they have no cooldown.
+   */
+  exportLog: defineTable({
+    profileId: v.id("profiles"),
+    eventId: v.id("events"),
+    at: v.number(),
+  })
+    .index("by_profile", ["profileId"])
+    .index("by_profile_event", ["profileId", "eventId"]),
+
   teams: defineTable({
     eventId: v.id("events"),
     tbaTeamKey: v.string(),
@@ -292,6 +309,20 @@ export default defineSchema({
   })
     .index("by_report", ["reportId"])
     .index("by_report_reason", ["reportId", "reason"]),
+
+  /**
+   * A team taken off the board during alliance selection. Scoped per scouting
+   * team — 1002 marking a robot picked must not blank it for 254.
+   */
+  pickedTeams: defineTable({
+    eventId: v.id("events"),
+    scoutingTeamNumber: v.number(),
+    teamId: v.id("teams"),
+    pickedAt: v.number(),
+    pickedBy: v.id("users"),
+  })
+    .index("by_event_team", ["eventId", "scoutingTeamNumber"])
+    .index("by_event_target", ["eventId", "teamId"]),
 
   pickLists: defineTable({
     eventId: v.id("events"),

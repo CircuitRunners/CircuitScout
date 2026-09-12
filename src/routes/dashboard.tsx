@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 
 import { api } from "../../convex/_generated/api";
+import { EventExport } from "@/components/event-export";
 import { ShiftRow } from "@/components/shift-picker";
 import { STATION_LABELS, type Station } from "@/lib/types";
 import { PageShell } from "./page-shell";
@@ -191,6 +192,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       ) : null}
+      <EventExport />
     </PageShell>
   );
 }

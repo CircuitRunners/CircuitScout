@@ -4,6 +4,7 @@ import {
   activeEvent, activeEventForTeam, currentProfile, managesTeam,
   requireAdmin, requireTeamAdmin,
 } from "./lib/guards";
+import { seedPrimaryEntries } from "./pickLists";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
@@ -289,6 +290,18 @@ export const applyImport = internalMutation({
         await ctx.db.delete(existing._id);
         matchesRemoved++;
       }
+    }
+
+    // Teams added by a re-import should appear on the primary list without
+    // anyone remembering to top it up.
+    const primaries = (
+      await ctx.db
+        .query("pickLists")
+        .withIndex("by_event", (q) => q.eq("eventId", eventId))
+        .collect()
+    ).filter((l) => l.ownerId === null);
+    for (const list of primaries) {
+      await seedPrimaryEntries(ctx, eventId, list._id);
     }
 
     return {
