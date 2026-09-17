@@ -86,7 +86,7 @@ async function recordJoin(
   }
 }
 
-function validate(args: {
+export function validate(args: {
   firstName: string;
   lastInitial: string;
   teamNumber: number;
@@ -282,4 +282,32 @@ export const dismissDeparture = mutation({
 export const myUserId = internalQuery({
   args: {},
   handler: async (ctx) => await requireUser(ctx),
+});
+
+/**
+ * Checked by the admin password-reset provider, which runs before any session
+ * exists — so the admin is identified by the password they just proved, not
+ * by ctx.auth.
+ */
+export const adminResetTarget = internalQuery({
+  args: { adminUserId: v.id("users"), targetEmail: v.string() },
+  handler: async (ctx, args) => {
+    const admin = await ctx.db
+      .query("profiles")
+      .withIndex("by_user", (q) => q.eq("userId", args.adminUserId))
+      .unique();
+    if (admin?.role !== "admin") {
+      return { ok: false as const, reason: "Only a full admin can reset a password." };
+    }
+
+    const account = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) =>
+        q.eq("provider", "password").eq("providerAccountId", args.targetEmail))
+      .unique();
+    if (!account) {
+      return { ok: false as const, reason: "That scout has no password sign-in." };
+    }
+    return { ok: true as const, reason: "" };
+  },
 });

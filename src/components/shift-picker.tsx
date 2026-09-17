@@ -16,11 +16,15 @@ export function ShiftPicker({
   busy,
   addLabel,
   onAdd,
+  advanceOnAdd = false,
 }: {
   maxMatch: number;
   busy: boolean;
   addLabel: string;
-  onAdd: (shift: { fromMatch: number; toMatch: number; station: Station }) => void;
+  /** Returning false means it was refused, so the range stays put. */
+  onAdd: (shift: { fromMatch: number; toMatch: number; station: Station }) => boolean | void;
+  /** Staging several in a row: start the next where this one ended. */
+  advanceOnAdd?: boolean;
 }) {
   const [from, setFrom] = useState(1);
   const [to, setTo] = useState(Math.max(1, maxMatch));
@@ -95,11 +99,15 @@ export function ShiftPicker({
       <Button className="w-full" disabled={busy || station === null}
         onClick={() => {
           if (station === null) return;
-          onAdd({
+          const accepted = onAdd({
             fromMatch: Math.min(from, to),
             toMatch: Math.max(from, to),
             station,
           });
+          if (advanceOnAdd && accepted !== false) {
+            setFrom(clamp(Math.max(from, to) + 1));
+            setTo(Math.max(1, maxMatch));
+          }
         }}>
         {addLabel}
       </Button>

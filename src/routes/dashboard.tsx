@@ -106,32 +106,35 @@ export default function DashboardPage() {
               <span className="text-3xl tabular-nums">
                 Qual {assignments.upNext.matchNumber}
               </span>
-              <span className={[
-                "rounded-md px-2 py-1 text-xs font-medium text-white",
-                assignments.upNext.station.startsWith("red") ? "bg-red-600" : "bg-blue-600",
-              ].join(" ")}>
-                {STATION_LABELS[assignments.upNext.station as Station]}
-              </span>
+              {assignments.upNext.station === null ? null : (
+                <span className={[
+                  "rounded-md px-2 py-1 text-xs font-medium text-white",
+                  assignments.upNext.station.startsWith("red") ? "bg-red-600" : "bg-blue-600",
+                ].join(" ")}>
+                  {STATION_LABELS[assignments.upNext.station as Station]}
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="-mt-4 space-y-3">
-            <p className="text-muted-foreground text-sm">
-              {assignments.upNext.teamNumber === null ? (
-                "That station has no team in the imported schedule."
-              ) : (
-                <>
-                  Team{" "}
-                  <span className="text-foreground font-medium tabular-nums">
-                    {assignments.upNext.teamNumber}
-                  </span>
-                  {assignments.upNext.nickname ? ` · ${assignments.upNext.nickname}` : ""}
-                  {" · "}
-                  {assignments.upNext.matchesAway === 0
-                    ? "now"
-                    : `${assignments.upNext.matchesAway} match${assignments.upNext.matchesAway === 1 ? "" : "es"} away`}
-                </>
-              )}
-            </p>
+            {assignments.upNext.assigned ? (
+              <p className="text-muted-foreground text-sm">
+                {assignments.upNext.teamNumber === null ? (
+                  "That station has no team in the imported schedule."
+                ) : (
+                  <>
+                    Team{" "}
+                    <span className="text-foreground font-medium tabular-nums">
+                      {assignments.upNext.teamNumber}
+                    </span>
+                    {assignments.upNext.nickname ? ` · ${assignments.upNext.nickname}` : ""}
+                    {assignments.upNext.matchesAway === 0
+                      ? ""
+                      : ` · ${assignments.upNext.matchesAway} match${assignments.upNext.matchesAway === 1 ? "" : "es"} away`}
+                  </>
+                )}
+              </p>
+            ) : null}
             {assignments.upNext.teamNumber !== null ? (
               <Button variant="secondary"
                 render={<Link to={`/scout/${assignments.upNext.matchNumber}/${assignments.upNext.teamNumber}`} />}>

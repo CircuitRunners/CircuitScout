@@ -119,9 +119,14 @@ export function TeamDetail({
                   <Stat label="Endgame fuel" value={data.stats.avgEndgameFuel} />
                   <Stat label="Total fuel" value={data.stats.avgTotalFuel} />
                   <Stat label="Climb points" value={data.stats.avgClimbPoints} />
-                  <Stat label="Driver" value={data.stats.avgDriver} />
-                  <Stat label="Defense" value={data.stats.avgDefense} />
-                  <Stat label="Accuracy" value={data.stats.avgAccuracy} suffix="%" />
+                  <Stat label="Passing" value={data.stats.avgPassing} />
+                  {data.stats.ratedReportCount > 0 ? (
+                    <>
+                      <Stat label="Driver" value={data.stats.avgDriver} />
+                      <Stat label="Defense" value={data.stats.avgDefense} />
+                      <Stat label="Accuracy" value={data.stats.avgAccuracy} suffix="%" />
+                    </>
+                  ) : null}
                   <Stat label="Dead-hub fuel" value={data.stats.avgUncountedFuel} />
                   {data.stats.bpsReportCount > 0 ? (
                     <>
@@ -138,6 +143,16 @@ export function TeamDetail({
                   {data.stats.maxTotalFuel} across those matches. Total fuel
                   counts only fuel scored into a live hub.
                 </p>
+
+                {data.stats.brokeCount > 0 ? (
+                  <p className="text-muted-foreground text-xs">
+                    Driver, defense, accuracy and BPS come from{" "}
+                    {data.stats.ratedReportCount} of {data.stats.reportCount}{" "}
+                    report{data.stats.reportCount === 1 ? "" : "s"} — the{" "}
+                    {data.stats.brokeCount} where the robot broke {data.stats.brokeCount === 1 ? "is" : "are"}{" "}
+                    left out. Fuel and passing still include them.
+                  </p>
+                ) : null}
               </>
             )}
 

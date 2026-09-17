@@ -1,3 +1,231 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# patch-batch-multi-shift.sh
+#   Batch assign takes SEVERAL shifts at once.
+#
+#   "Add shift" no longer writes and closes — it stages a shift in a list with
+#   a remove control, the same add-then-delete cycle the per-scout dialog uses.
+#   The footer button writes every staged shift for every selected scout.
+#
+#   Conflicts are skip-and-report, not all-or-nothing: a shift that clashes
+#   with one scout's existing shift is skipped for that scout only, and the
+#   dialog switches to a report naming who was skipped and why. One stray
+#   shift on one person no longer blocks the other seven.
+#
+#   Overlaps *inside* the staged list are still refused outright — every
+#   selected scout gets all of them, so a clash there is wrong for everyone.
+#
+# No schema change. `assignments.create` is untouched, so the per-scout
+# "Assign matches" dialog keeps its abort-on-clash behaviour.
+# ---------------------------------------------------------------------------
+set -euo pipefail
+[[ -f src/routes/admin/assign-dialog.tsx ]] || { echo "ERROR: run from the repo root" >&2; exit 1; }
+say() { printf '\n\033[1;36m>> %s\033[0m\n' "$*"; }
+runjs() { if command -v bun >/dev/null 2>&1; then bun "$1"; else node "$1"; fi; }
+
+# --- 1. Convex: createMany --------------------------------------------------
+say "Convex: assignments.createMany"
+if grep -q "export const createMany" convex/assignments.ts; then
+  echo "already patched"
+else
+  cat >> convex/assignments.ts <<'TS'
+
+/**
+ * Several shifts for several scouts in one pass.
+ *
+ * Unlike `create`, a clash does not abort the batch. The shift is skipped for
+ * that one scout and reported back, because one person holding a stray shift
+ * should not stop the other seven from being assigned. The caller is expected
+ * to show the skips somewhere that stays on screen.
+ *
+ * Overlaps within `shifts` are a different matter — every scout gets all of
+ * them, so a clash there is wrong for everyone and is refused outright.
+ */
+export const createMany = mutation({
+  args: {
+    profileIds: v.array(v.id("profiles")),
+    shifts: v.array(v.object({
+      fromMatch: v.number(),
+      toMatch: v.number(),
+      station,
+    })),
+  },
+  handler: async (ctx, args) => {
+    const me = await requireTeamAdmin(ctx);
+    const event = await activeEvent(ctx);
+    if (!event) throw new Error("No active event.");
+    if (args.profileIds.length === 0) throw new Error("Pick at least one scout.");
+    if (args.shifts.length === 0) throw new Error("Add at least one shift.");
+
+    const wanted = args.shifts
+      .map((s) => ({
+        fromMatch: Math.min(s.fromMatch, s.toMatch),
+        toMatch: Math.max(s.fromMatch, s.toMatch),
+        station: s.station,
+      }))
+      .sort((a, b) => a.fromMatch - b.fromMatch);
+
+    for (const s of wanted) {
+      if (!Number.isInteger(s.fromMatch) || s.fromMatch < 1) {
+        throw new Error("Bad match range.");
+      }
+    }
+
+    // Sorted, so each shift only has to clear the one before it.
+    let previous: { fromMatch: number; toMatch: number } | null = null;
+    for (const s of wanted) {
+      if (previous && s.fromMatch <= previous.toMatch) {
+        throw new Error(
+          `Quals ${previous.fromMatch}–${previous.toMatch} and ${s.fromMatch}–${s.toMatch} overlap each other.`,
+        );
+      }
+      previous = s;
+    }
+
+    const skipped: {
+      displayName: string;
+      fromMatch: number;
+      toMatch: number;
+      station: Station;
+      reason: string;
+    }[] = [];
+    let created = 0;
+
+    for (const profileId of args.profileIds) {
+      const target = await ctx.db.get(profileId);
+      if (!target) {
+        for (const s of wanted) {
+          skipped.push({ displayName: "A removed scout", ...s, reason: "no longer exists" });
+        }
+        continue;
+      }
+      if (!managesTeam(me, target.teamNumber)) {
+        for (const s of wanted) {
+          skipped.push({ displayName: target.displayName, ...s, reason: "is not on your team" });
+        }
+        continue;
+      }
+
+      const existing = await ctx.db
+        .query("matchAssignments")
+        .withIndex("by_event_profile", (q) =>
+          q.eq("eventId", event._id).eq("profileId", profileId))
+        .collect();
+
+      // Grows as we insert, so two staged shifts cannot both land on the same
+      // gap in one run.
+      const held = existing.map((row) => ({
+        fromMatch: row.fromMatch,
+        toMatch: row.toMatch,
+      }));
+
+      for (const s of wanted) {
+        const clash = held.find(
+          (row) => s.fromMatch <= row.toMatch && s.toMatch >= row.fromMatch);
+        if (clash) {
+          skipped.push({
+            displayName: target.displayName,
+            ...s,
+            reason: `already has quals ${clash.fromMatch}–${clash.toMatch}`,
+          });
+          continue;
+        }
+
+        await ctx.db.insert("matchAssignments", {
+          eventId: event._id,
+          profileId,
+          teamNumber: target.teamNumber ?? 0,
+          fromMatch: s.fromMatch,
+          toMatch: s.toMatch,
+          station: s.station,
+          createdAt: Date.now(),
+          createdBy: me.userId,
+        });
+        held.push({ fromMatch: s.fromMatch, toMatch: s.toMatch });
+        created += 1;
+      }
+    }
+
+    return {
+      created,
+      attempted: args.profileIds.length * wanted.length,
+      skipped,
+    };
+  },
+});
+TS
+  echo "convex/assignments.ts patched"
+fi
+
+# --- 2. Shift picker: keep the picker alive between adds --------------------
+say "Shift picker: advanceOnAdd"
+cat > /tmp/cs-shift-picker.mjs <<'MJS'
+import { readFileSync, writeFileSync } from "node:fs";
+const p = "src/components/shift-picker.tsx";
+let s = readFileSync(p, "utf8");
+const fail = (m) => { console.error(`ABORT (${p} untouched): ${m}`); process.exit(1); };
+if (s.includes("advanceOnAdd")) { console.log("already patched"); process.exit(0); }
+
+const params = `export function ShiftPicker({
+  maxMatch,
+  busy,
+  addLabel,
+  onAdd,
+}: {`;
+if (!s.includes(params)) fail("could not find the ShiftPicker parameters");
+
+const onAddType = `  onAdd: (shift: { fromMatch: number; toMatch: number; station: Station }) => void;
+}) {`;
+if (!s.includes(onAddType)) fail("could not find the onAdd prop type");
+
+const click = `        onClick={() => {
+          if (station === null) return;
+          onAdd({
+            fromMatch: Math.min(from, to),
+            toMatch: Math.max(from, to),
+            station,
+          });
+        }}>`;
+if (!s.includes(click)) fail("could not find the add button handler");
+
+s = s.replace(params, `export function ShiftPicker({
+  maxMatch,
+  busy,
+  addLabel,
+  onAdd,
+  advanceOnAdd = false,
+}: {`);
+
+s = s.replace(onAddType, `  /** Returning false means it was refused, so the range stays put. */
+  onAdd: (shift: { fromMatch: number; toMatch: number; station: Station }) => boolean | void;
+  /** Staging several in a row: start the next where this one ended. */
+  advanceOnAdd?: boolean;
+}) {`);
+
+s = s.replace(click, `        onClick={() => {
+          if (station === null) return;
+          const accepted = onAdd({
+            fromMatch: Math.min(from, to),
+            toMatch: Math.max(from, to),
+            station,
+          });
+          if (advanceOnAdd && accepted !== false) {
+            setFrom(clamp(Math.max(from, to) + 1));
+            setTo(Math.max(1, maxMatch));
+          }
+        }}>`);
+
+writeFileSync(p, s);
+console.log("src/components/shift-picker.tsx patched");
+MJS
+runjs /tmp/cs-shift-picker.mjs
+rm -f /tmp/cs-shift-picker.mjs
+
+# --- 3. Assign dialogs: whole-file rewrite ----------------------------------
+# Rewritten rather than patched: the batch dialog gains a staging list and a
+# third step, which is most of the component.
+say "Assign dialog: staged shifts and a skip report"
+cat > src/routes/admin/assign-dialog.tsx <<'TSX'
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -309,3 +537,12 @@ export function BatchAssignDialog({
     </Dialog>
   );
 }
+TSX
+echo "src/routes/admin/assign-dialog.tsx rewritten"
+
+say "Typecheck"
+if command -v bun >/dev/null 2>&1; then
+  bun run typecheck || echo "Typecheck reported issues — see above."
+else
+  npx tsc -b --noEmit || echo "Typecheck reported issues — see above."
+fi

@@ -148,17 +148,25 @@ export const mine = query({
       }),
     );
 
-    // "Current" is the furthest match anyone has scouted. Distance is measured
-    // in matches rather than minutes: scheduled times drift during an event
-    // and only refresh on re-import, so a countdown would be confidently wrong.
+    // "Current" is the furthest match anyone has reported. Pooled across
+    // scouts — scout 1 finishing qual 12 moves everyone on to 13 — and taken
+    // from this scout's own reports too, so your own submission always
+    // advances your own card. TBA results deliberately do not count: a
+    // refresh landing mid-shift would jump the card past matches still
+    // waiting to be scouted. Distance stays in matches rather than minutes,
+    // because scheduled times drift during an event.
     const allReports = await ctx.db
       .query("matchReports")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
+    const reportedMatchIds = new Set(
+      [...allReports, ...myReports].map((r) => r.matchId),
+    );
     let current = 0;
-    for (const report of allReports) {
-      const match = matches.find((m) => m._id === report.matchId);
-      if (match && match.matchNumber > current) current = match.matchNumber;
+    for (const match of matches) {
+      if (reportedMatchIds.has(match._id) && match.matchNumber > current) {
+        current = match.matchNumber;
+      }
     }
 
     const shifts = rows
@@ -197,10 +205,26 @@ export const mine = query({
     assigned.sort((a, b) => a.matchNumber - b.matchNumber);
 
     const next = assigned.find(
-      (a) => !reportedMatchNumbers.has(a.matchNumber) && a.matchNumber > current,
-    ) ?? assigned.find((a) => !reportedMatchNumbers.has(a.matchNumber)) ?? null;
+      (a) => a.matchNumber > current && !reportedMatchNumbers.has(a.matchNumber),
+    ) ?? null;
 
-    const upNext = next
+    // Once a shift runs out the card stays, naming the match the event has
+    // moved on to. A scout whose assignment is finished should see the
+    // schedule advancing rather than an empty space where the card was.
+    const upcomingNumber = matches
+      .map((m) => m.matchNumber)
+      .filter((n) => n > current)
+      .sort((a, b) => a - b)[0] ?? null;
+
+    const upNext: {
+      matchNumber: number;
+      /** Null when nothing is assigned: no badge, no robot, no button. */
+      station: Station | null;
+      teamNumber: number | null;
+      nickname: string | null;
+      matchesAway: number;
+      assigned: boolean;
+    } | null = next
       ? {
           matchNumber: next.matchNumber,
           station: next.station,
@@ -209,9 +233,143 @@ export const mine = query({
             ? (teamByNumber.get(next.teamNumber)?.nickname ?? null)
             : null,
           matchesAway: Math.max(0, next.matchNumber - current),
+          assigned: true,
         }
-      : null;
+      : upcomingNumber === null
+        ? null
+        : {
+            matchNumber: upcomingNumber,
+            station: null,
+            teamNumber: null,
+            nickname: null,
+            matchesAway: Math.max(0, upcomingNumber - current),
+            assigned: false,
+          };
 
     return { shifts, upNext, assigned };
+  },
+});
+
+/**
+ * Several shifts for several scouts in one pass.
+ *
+ * Unlike `create`, a clash does not abort the batch. The shift is skipped for
+ * that one scout and reported back, because one person holding a stray shift
+ * should not stop the other seven from being assigned. The caller is expected
+ * to show the skips somewhere that stays on screen.
+ *
+ * Overlaps within `shifts` are a different matter — every scout gets all of
+ * them, so a clash there is wrong for everyone and is refused outright.
+ */
+export const createMany = mutation({
+  args: {
+    profileIds: v.array(v.id("profiles")),
+    shifts: v.array(v.object({
+      fromMatch: v.number(),
+      toMatch: v.number(),
+      station,
+    })),
+  },
+  handler: async (ctx, args) => {
+    const me = await requireTeamAdmin(ctx);
+    const event = await activeEvent(ctx);
+    if (!event) throw new Error("No active event.");
+    if (args.profileIds.length === 0) throw new Error("Pick at least one scout.");
+    if (args.shifts.length === 0) throw new Error("Add at least one shift.");
+
+    const wanted = args.shifts
+      .map((s) => ({
+        fromMatch: Math.min(s.fromMatch, s.toMatch),
+        toMatch: Math.max(s.fromMatch, s.toMatch),
+        station: s.station,
+      }))
+      .sort((a, b) => a.fromMatch - b.fromMatch);
+
+    for (const s of wanted) {
+      if (!Number.isInteger(s.fromMatch) || s.fromMatch < 1) {
+        throw new Error("Bad match range.");
+      }
+    }
+
+    // Sorted, so each shift only has to clear the one before it.
+    let previous: { fromMatch: number; toMatch: number } | null = null;
+    for (const s of wanted) {
+      if (previous && s.fromMatch <= previous.toMatch) {
+        throw new Error(
+          `Quals ${previous.fromMatch}–${previous.toMatch} and ${s.fromMatch}–${s.toMatch} overlap each other.`,
+        );
+      }
+      previous = s;
+    }
+
+    const skipped: {
+      displayName: string;
+      fromMatch: number;
+      toMatch: number;
+      station: Station;
+      reason: string;
+    }[] = [];
+    let created = 0;
+
+    for (const profileId of args.profileIds) {
+      const target = await ctx.db.get(profileId);
+      if (!target) {
+        for (const s of wanted) {
+          skipped.push({ displayName: "A removed scout", ...s, reason: "no longer exists" });
+        }
+        continue;
+      }
+      if (!managesTeam(me, target.teamNumber)) {
+        for (const s of wanted) {
+          skipped.push({ displayName: target.displayName, ...s, reason: "is not on your team" });
+        }
+        continue;
+      }
+
+      const existing = await ctx.db
+        .query("matchAssignments")
+        .withIndex("by_event_profile", (q) =>
+          q.eq("eventId", event._id).eq("profileId", profileId))
+        .collect();
+
+      // Grows as we insert, so two staged shifts cannot both land on the same
+      // gap in one run.
+      const held = existing.map((row) => ({
+        fromMatch: row.fromMatch,
+        toMatch: row.toMatch,
+      }));
+
+      for (const s of wanted) {
+        const clash = held.find(
+          (row) => s.fromMatch <= row.toMatch && s.toMatch >= row.fromMatch);
+        if (clash) {
+          skipped.push({
+            displayName: target.displayName,
+            ...s,
+            reason: `already has quals ${clash.fromMatch}–${clash.toMatch}`,
+          });
+          continue;
+        }
+
+        await ctx.db.insert("matchAssignments", {
+          eventId: event._id,
+          profileId,
+          teamNumber: target.teamNumber ?? 0,
+          fromMatch: s.fromMatch,
+          toMatch: s.toMatch,
+          station: s.station,
+          createdAt: Date.now(),
+          createdBy: me.userId,
+        });
+        held.push({ fromMatch: s.fromMatch, toMatch: s.toMatch });
+        created += 1;
+      }
+    }
+
+    return {
+      created,
+      attempted: args.profileIds.length * wanted.length,
+      skipped,
+    };
   },
 });

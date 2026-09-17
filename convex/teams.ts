@@ -2,10 +2,8 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { activeEvent , currentTeamNumber } from "./lib/guards";
-import {
-  climbPoints, countedTeleopFuel, uncountedTeleopFuel,
-} from "./lib/scoring";
-import type { Id } from "./_generated/dataModel";
+import { derive, summarise } from "./lib/summarise";
+import type { Doc, Id } from "./_generated/dataModel";
 
 type Tier = "t1" | "t2" | "t3" | "dnp" | "uncategorized";
 
@@ -75,9 +73,6 @@ export const listWithStatus = query({
   },
 });
 
-const mean = (xs: number[]) =>
-  xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
-
 /** Everything the detail modal needs, in one subscription. */
 export const detail = query({
   args: { teamNumber: v.number() },
@@ -120,17 +115,10 @@ export const detail = query({
     const nameByUser = new Map(profiles.map((p) => [p.userId, p.displayName]));
 
     const rows = [];
-    const autoF: number[] = [];
-    const teleF: number[] = [];
-    const deadF: number[] = [];
-    const endF: number[] = [];
-    const totals: number[] = [];
-    const climbs: number[] = [];
-    const drivers: number[] = [];
-    const defenses: number[] = [];
-    const accuracies: number[] = [];
-    const bps: number[] = [];
-    const adjusted: number[] = [];
+    // Averages come from the shared summariser rather than a second copy of
+    // the arithmetic, so the team card and the compare table cannot disagree
+    // about what a driver rating is.
+    const entries: { report: Doc<"matchReports">; isAutoWinner: boolean | null }[] = [];
 
     for (const report of reports) {
       const match = matchById.get(report.matchId);
@@ -139,28 +127,8 @@ export const detail = query({
       const isWinner =
         report.autoWinner === null ? null : report.autoWinner === alliance;
 
-      const counted =
-        isWinner === null
-          ? Object.values(report.teleop.byShift).reduce((a, b) => a + b, 0)
-          : countedTeleopFuel(report.teleop.byShift, isWinner);
-      const dead =
-        isWinner === null ? 0 : uncountedTeleopFuel(report.teleop.byShift, isWinner);
-      const total = report.auto.fuel + counted + report.endgame.fuel;
-      const climb = climbPoints(report.auto.climbL1, report.endgame.climb);
-
-      autoF.push(report.auto.fuel);
-      teleF.push(counted);
-      deadF.push(dead);
-      endF.push(report.endgame.fuel);
-      totals.push(total);
-      climbs.push(climb);
-      drivers.push(report.ratings.driver);
-      defenses.push(report.ratings.defense);
-      accuracies.push(report.ratings.accuracy);
-      if (report.avgBps !== undefined) {
-        bps.push(report.avgBps);
-        adjusted.push(report.avgBps * (report.ratings.accuracy / 100));
-      }
+      const { counted, dead, total, climb } = derive(report, isWinner);
+      entries.push({ report, isAutoWinner: isWinner });
 
       const edits = await ctx.db
         .query("reportEdits")
@@ -208,23 +176,7 @@ export const detail = query({
         : null,
       tier: tiers.get(team._id) ?? ("uncategorized" as Tier),
       reports: rows,
-      stats: {
-        reportCount: reports.length,
-        avgAutoFuel: mean(autoF),
-        avgTeleopFuel: mean(teleF),
-        avgUncountedFuel: mean(deadF),
-        avgEndgameFuel: mean(endF),
-        avgTotalFuel: mean(totals),
-        avgClimbPoints: mean(climbs),
-        avgDriver: mean(drivers),
-        avgDefense: mean(defenses),
-        avgAccuracy: mean(accuracies),
-        avgBps: mean(bps),
-        avgAdjustedBps: mean(adjusted),
-        bpsReportCount: bps.length,
-        minTotalFuel: totals.length ? Math.min(...totals) : 0,
-        maxTotalFuel: totals.length ? Math.max(...totals) : 0,
-      },
+      stats: summarise(entries),
     };
   },
 });

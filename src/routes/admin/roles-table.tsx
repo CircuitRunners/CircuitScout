@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
-import { ChevronDown, TriangleAlert, Trash2, UserMinus, Users, X } from "lucide-react";
+import { useAuthActions } from "@convex-dev/auth/react";
+import { ChevronDown, TriangleAlert, Trash2, UserMinus, UserPen, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -9,6 +10,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
@@ -37,6 +39,145 @@ type PendingJoin = {
   at: number;
 };
 
+/**
+ * Editing someone else's account. Everything except the password goes through
+ * one mutation; the password has to go through the admin-password-reset
+ * provider, which is why this asks the admin for their own password too.
+ */
+function EditScoutPanel({
+  profile, onDone,
+}: {
+  profile: {
+    _id: Id<"profiles">;
+    displayName: string;
+    firstName?: string;
+    lastInitial?: string;
+    teamNumber?: number;
+  };
+  onDone: () => void;
+}) {
+  const { signIn } = useAuthActions();
+  const myEmail = useQuery(api.account.myEmail);
+  const currentEmail = useQuery(api.account.scoutEmail, { profileId: profile._id });
+  const update = useMutation(api.account.adminUpdateScout);
+
+  // Null means "not edited yet", so the live query can fill the field without
+  // overwriting what is being typed.
+  const [email, setEmail] = useState<string | null>(null);
+  const [firstName, setFirstName] = useState(profile.firstName ?? "");
+  const [lastInitial, setLastInitial] = useState(profile.lastInitial ?? "");
+  const [teamNumber, setTeamNumber] = useState(
+    profile.teamNumber ? String(profile.teamNumber) : "");
+  const [newPassword, setNewPassword] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const emailValue = email ?? currentEmail ?? "";
+  // Your own row reached through the admin panel. The password field is then
+  // the ordinary current-password check, not an override.
+  const editingSelf =
+    myEmail != null && currentEmail != null && myEmail === currentEmail;
+  const team = Number.parseInt(teamNumber, 10);
+  const ready =
+    firstName.trim() !== ""
+    && /^[A-Za-z]$/.test(lastInitial.trim())
+    && Number.isInteger(team) && team > 0
+    && emailValue.includes("@")
+    && (newPassword === "" || (newPassword.length >= 8 && adminPassword !== ""));
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      // Password first: the reset is addressed to the email they have now, so
+      // changing the address before it would aim at an account that moved.
+      if (newPassword !== "") {
+        if (!myEmail) throw new Error("Could not read your own email.");
+        if (!currentEmail) throw new Error("That scout has no email on file.");
+        await signIn("admin-password-reset", {
+          adminEmail: myEmail,
+          adminPassword,
+          targetEmail: currentEmail,
+          newPassword,
+        });
+      }
+      const result = await update({
+        profileId: profile._id,
+        email: emailValue.trim() === (currentEmail ?? "") ? undefined : emailValue,
+        firstName,
+        lastInitial,
+        teamNumber: team,
+      });
+      toast.success(`${result.displayName} updated`);
+      onDone();
+    } catch (error) {
+      toast.error("Could not save", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border border-dashed p-3">
+      <div className="space-y-2">
+        <Label htmlFor={`email-${profile._id}`}>Email</Label>
+        <Input id={`email-${profile._id}`} type="email" value={emailValue}
+          onChange={(e) => setEmail(e.target.value)} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-2">
+          <Label htmlFor={`first-${profile._id}`}>First name</Label>
+          <Input id={`first-${profile._id}`} value={firstName}
+            onChange={(e) => setFirstName(e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`initial-${profile._id}`}>Last initial</Label>
+          <Input id={`initial-${profile._id}`} maxLength={1} value={lastInitial}
+            onChange={(e) => setLastInitial(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`team-${profile._id}`}>Team number</Label>
+        <Input id={`team-${profile._id}`} inputMode="numeric" value={teamNumber}
+          onChange={(e) => setTeamNumber(e.target.value)} />
+      </div>
+
+      <div className="space-y-2 border-t pt-3">
+        <Label htmlFor={`pw-${profile._id}`}>New password</Label>
+        <Input id={`pw-${profile._id}`} type="password" autoComplete="new-password"
+          placeholder="Leave blank to keep it" value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)} />
+        {newPassword !== "" ? (
+          <>
+            <Label htmlFor={`admin-pw-${profile._id}`}>
+              {editingSelf ? "Your current password" : "Your own password"}
+            </Label>
+            <Input id={`admin-pw-${profile._id}`} type="password"
+              autoComplete="current-password" value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)} />
+            {editingSelf ? null : (
+              <p className="text-muted-foreground text-xs">
+                Setting someone else's password needs yours. They are not told,
+                so tell them what it is.
+              </p>
+            )}
+          </>
+        ) : null}
+      </div>
+
+      <div className="flex gap-2">
+        <Button size="sm" disabled={busy || !ready} onClick={() => void save()}>
+          Save changes
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onDone}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 export function RolesTable() {
   const profiles = useQuery(api.profiles.list);
   const me = useQuery(api.profiles.me);
@@ -59,6 +200,7 @@ export function RolesTable() {
   const [manageSearch, setManageSearch] = useState("");
   const [confirmName, setConfirmName] = useState("");
   const [targetId, setTargetId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
   const [assignId, setAssignId] = useState<Id<"profiles"> | null>(null);
   const [assignName, setAssignName] = useState("");
   const [batchOpen, setBatchOpen] = useState(false);
@@ -388,6 +530,13 @@ export function RolesTable() {
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                       {profile.displayName}
                     </span>
+                    <Button size="sm" variant="outline"
+                      onClick={() => {
+                        setEditId(editId === profile._id ? null : profile._id);
+                        setTargetId(null);
+                      }}>
+                      <UserPen className="size-3" /> Edit account
+                    </Button>
                     {profile.role === "admin" ? (
                       <Badge variant="secondary">Admin</Badge>
                     ) : (
@@ -400,6 +549,11 @@ export function RolesTable() {
                       </Button>
                     )}
                   </div>
+
+                  {editId === profile._id ? (
+                    <EditScoutPanel profile={profile}
+                      onDone={() => setEditId(null)} />
+                  ) : null}
 
                   {targetId === profile._id ? (
                     <div className="space-y-2 rounded-md border border-dashed p-3">

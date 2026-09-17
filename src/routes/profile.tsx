@@ -27,8 +27,11 @@ const TIER_LABEL = {
 function AccountSecurity({ email }: { email: string }) {
   const { signIn, signOut } = useAuthActions();
   const deleteSelf = useMutation(api.account.deleteSelf);
+  const changeEmail = useMutation(api.account.changeEmail);
 
-  const [mode, setMode] = useState<"none" | "password" | "delete">("none");
+  const [mode, setMode] = useState<"none" | "email" | "password" | "delete">("none");
+  const [newEmail, setNewEmail] = useState("");
+  const [emailPassword, setEmailPassword] = useState("");
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -39,7 +42,26 @@ function AccountSecurity({ email }: { email: string }) {
   const close = () => {
     setMode("none");
     setCurrent(""); setNext(""); setConfirm("");
+    setNewEmail(""); setEmailPassword("");
     setDeletePassword(""); setDeleteConfirmed(false);
+  };
+
+  const changeMyEmail = async () => {
+    setBusy(true);
+    try {
+      // Same re-verification the delete path uses: a stolen open session must
+      // not be enough to move the address a password reset would go to.
+      await signIn("password", { email, password: emailPassword, flow: "signIn" });
+      const result = await changeEmail({ email: newEmail });
+      toast.success(`Email changed to ${result.email}`);
+      close();
+    } catch (error) {
+      toast.error("Could not change it", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const changePassword = async () => {
@@ -95,6 +117,9 @@ function AccountSecurity({ email }: { email: string }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setMode("email")}>
+            Change email
+          </Button>
           <Button variant="outline" onClick={() => setMode("password")}>
             Change password
           </Button>
@@ -103,6 +128,36 @@ function AccountSecurity({ email }: { email: string }) {
           </Button>
         </CardContent>
       </Card>
+
+      <Dialog open={mode === "email"} onOpenChange={(o) => { if (!o) close(); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change email</DialogTitle>
+            <DialogDescription>
+              This is what you sign in with. You are currently {email}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="new-email">New email</Label>
+              <Input id="new-email" type="email" autoComplete="email"
+                value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="email-pw">Your password</Label>
+              <Input id="email-pw" type="password" autoComplete="current-password"
+                value={emailPassword}
+                onChange={(e) => setEmailPassword(e.target.value)} />
+            </div>
+            <Button className="w-full"
+              disabled={busy || emailPassword === "" || !newEmail.includes("@")
+                || newEmail.trim() === email}
+              onClick={() => void changeMyEmail()}>
+              Change email
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={mode === "password"} onOpenChange={(o) => { if (!o) close(); }}>
         <DialogContent className="max-w-sm">
