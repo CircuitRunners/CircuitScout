@@ -190,6 +190,13 @@ export default function MatchFormPage() {
   // A report finished before the buzzer cannot have seen the endgame.
   const beforeMatchEnd = !editId && startedAt !== null && phase !== "over";
 
+  // Values only an old report can have: the endgame tab that wrote them is
+  // gone, but editing must not silently zero them.
+  const legacyEndgame =
+    editId !== null
+    && (endFuel > 0 || ePassedNeutral > 0 || ePassedFull > 0
+      || endStole > 0 || endNotes.trim() !== "");
+
   const hubStateSource: "timed" | "estimated" | "none" =
     startedAt === null ? "none" : estimated ? "estimated" : "timed";
 
@@ -321,7 +328,6 @@ export default function MatchFormPage() {
         <TabsList className="w-full">
           <TabsTrigger value="auto" className="flex-1">Auto</TabsTrigger>
           <TabsTrigger value="teleop" className="flex-1">Teleop</TabsTrigger>
-          <TabsTrigger value="endgame" className="flex-1">Endgame</TabsTrigger>
           <TabsTrigger value="conclusion" className="flex-1">Conclusion</TabsTrigger>
         </TabsList>
 
@@ -391,25 +397,26 @@ export default function MatchFormPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="endgame" className="space-y-4 pt-4">
+        <TabsContent value="conclusion" className="space-y-4 pt-4">
           <Card>
             <CardHeader><CardTitle>Endgame</CardTitle></CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-3">
               <SegmentedChoice label="Climb" options={CLIMB_OPTIONS}
                 value={climb} onChange={setClimb} />
-              <Stepper label="Fuel scored" value={endFuel} onChange={setEndFuel} />
-              <Stepper label="Passed from neutral zone"
-                value={ePassedNeutral} onChange={setEPassedNeutral} />
-              <Stepper label="Passed full field"
-                value={ePassedFull} onChange={setEPassedFull} />
-              <Stepper label="Stole fuel" value={endStole} onChange={setEndStole} />
-              <Textarea placeholder="Endgame notes" rows={2}
-                value={endNotes} onChange={(e) => setEndNotes(e.target.value)} />
+              <p className="text-muted-foreground text-xs">
+                Fuel scored in the last 30 seconds goes on the Teleop stepper —
+                the shift timer banks it for you.
+              </p>
+              {legacyEndgame ? (
+                <p className="text-muted-foreground border-t pt-3 text-xs">
+                  This report was written with the old endgame tab: {endFuel} fuel,{" "}
+                  {ePassedNeutral + ePassedFull} passed, {endStole} stolen. Those
+                  stay as they were — editing here does not clear them.
+                </p>
+              ) : null}
             </CardContent>
           </Card>
 
-        </TabsContent>
-        <TabsContent value="conclusion" className="space-y-4 pt-4">
       <Card>
         <CardHeader><CardTitle>Ratings</CardTitle></CardHeader>
         <CardContent className="space-y-6">

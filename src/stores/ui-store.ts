@@ -19,7 +19,7 @@ type UIState = {
   /** Sorting Uncategorized is a VIEW, never a rewrite of stored order. */
   uncategorizedSort: { key: SortKey; direction: SortDirection } | null;
   activeTier: Tier;
-  matchFormPeriod: "auto" | "teleop" | "endgame" | "conclusion";
+  matchFormPeriod: "auto" | "teleop" | "conclusion";
   /** Which auto-path input the scout prefers. Buttons are the fallback. */
   autoInputMode: "map" | "buttons";
 };
