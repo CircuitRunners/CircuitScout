@@ -61,6 +61,9 @@ export default function AdminDataPage() {
                   /{totals.possible}
                 </span>
               </CardTitle>
+              <CardDescription>
+                {totals.covered} of {totals.slots} robot-matches covered
+              </CardDescription>
             </CardHeader>
           </Card>
           <Card>

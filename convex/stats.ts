@@ -183,6 +183,47 @@ export const forMatch = query({
 });
 
 /** Is the data trustworthy? The view that decides whether anything else is. */
+/**
+ * Robot-matches covered, out of robot-matches on the schedule. One robot in
+ * one match is one slot: it fills once, however many scouts watched it. That
+ * is the whole point — counting reports instead runs past 100% the moment two
+ * scouts double up, which is a thing this app encourages.
+ */
+function coveredSlots(loaded: NonNullable<Awaited<ReturnType<typeof loadEvent>>>) {
+  const seenByMatch = new Map<Id<"matches">, Set<number>>();
+  for (const report of loaded.reports) {
+    const team = loaded.teamById.get(report.teamId);
+    if (!team) continue;
+    const seen = seenByMatch.get(report.matchId) ?? new Set<number>();
+    seen.add(team.number);
+    seenByMatch.set(report.matchId, seen);
+  }
+
+  let slots = 0;
+  let covered = 0;
+  for (const match of loaded.matches) {
+    const seen = seenByMatch.get(match._id) ?? new Set<number>();
+    // The schedule's own alliances, not a hardcoded six: a match short a team
+    // should not read as a robot nobody scouted. And only teams actually in
+    // the match count, so a report filed against the wrong robot fills
+    // nothing rather than covering for the one it displaced.
+    const expected = [...match.redTeamNumbers, ...match.blueTeamNumbers];
+    slots += expected.length;
+    covered += expected.filter((number) => seen.has(number)).length;
+  }
+  return { slots, covered };
+}
+
+/** Just the fraction, for the dashboard metric. */
+export const matchCoverage = query({
+  args: {},
+  handler: async (ctx) => {
+    const loaded = await loadEvent(ctx);
+    if (!loaded) return { slots: 0, covered: 0 };
+    return coveredSlots(loaded);
+  },
+});
+
 export const coverage = query({
   args: {},
   handler: async (ctx) => {
@@ -263,6 +304,7 @@ export const coverage = query({
         matches: loaded.matches.length,
         reports: loaded.reports.length,
         possible: loaded.matches.length * 6,
+        ...coveredSlots(loaded),
       },
     };
   },

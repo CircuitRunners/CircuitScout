@@ -63,16 +63,18 @@ export default function DashboardPage() {
   const teams = useQuery(api.teams.listWithStatus);
   const matches = useQuery(api.matches.listForEvent);
   const assignments = useQuery(api.assignments.mine);
+  const slots = useQuery(api.stats.matchCoverage);
 
   const total = teams?.length ?? 0;
   const pitDone = teams?.filter((t) => t.pitScouted).length ?? 0;
   const reports = teams?.reduce((sum, t) => sum + t.reportCount, 0) ?? 0;
   const noData = teams?.filter((t) => t.reportCount === 0).length ?? 0;
 
-  // Six robots per match is full coverage. Anything less is a gap you want to
-  // see now rather than during alliance selection.
-  const expected = (matches?.length ?? 0) * 6;
-  const coverage = expected === 0 ? 0 : Math.round((reports / expected) * 100);
+  // A robot-match counts once it has any report at all. Reports over slots
+  // would pass 100% whenever two scouts double up, which is encouraged.
+  const covered = slots?.covered ?? 0;
+  const totalSlots = slots?.slots ?? 0;
+  const coverage = totalSlots === 0 ? 0 : Math.round((covered / totalSlots) * 100);
 
   return (
     <PageShell
@@ -169,7 +171,7 @@ export default function DashboardPage() {
           hint={total - pitDone > 0 ? `${total - pitDone} still to do` : "Complete"} />
         <Metric label="Match reports" value={String(reports)} />
         <Metric label="Coverage" value={`${coverage}%`}
-          hint={`of ${expected} possible robot-matches`} />
+          hint={`${covered} of ${totalSlots} robot-matches`} />
         <Metric label="Teams with no data" value={String(noData)}
           hint={noData > 0 ? "Unrankable until scouted" : "Every team has data"} />
       </div>
