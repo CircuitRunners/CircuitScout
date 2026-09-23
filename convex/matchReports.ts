@@ -2,6 +2,9 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { activeEvent, requireUser } from "./lib/guards";
 import { MAX_AUTO_CYCLES } from "./lib/scoring";
+import { bumpReportCount } from "./lib/reportCounts";
+import { refreshTeamSummary } from "./lib/teamSummaries";
+import { refreshMatchTally, refreshScoutTally } from "./lib/coverage";
 
 const lane = v.union(
   v.literal("trench-left"), v.literal("bump-left"),
@@ -224,6 +227,10 @@ export const submit = mutation({
       autoWinnerFlagged: false,
       ...rest,
     });
+    await bumpReportCount(ctx, event._id, teamId, 1);
+    await refreshTeamSummary(ctx, event._id, teamId);
+    await refreshMatchTally(ctx, event._id, matchId);
+    await refreshScoutTally(ctx, event._id, scoutId);
 
     return reportId;
   },
@@ -284,6 +291,8 @@ export const update = mutation({
       hubStateSource: args.hubStateSource,
       updatedAt: Date.now(),
     });
+    await refreshTeamSummary(ctx, report.eventId, report.teamId);
+    await refreshScoutTally(ctx, report.eventId, report.scoutId);
     await ctx.db.insert("reportEdits", {
       reportId: args.reportId,
       editedBy: userId,

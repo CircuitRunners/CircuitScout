@@ -28,6 +28,29 @@ const byShift = v.object({
   s1: v.number(), s2: v.number(), s3: v.number(), s4: v.number(),
 });
 
+/** Mirrors Summary in lib/summarise.ts; a field added there must be added here. */
+const summary = v.object({
+  reportCount: v.number(),
+  ratedReportCount: v.number(),
+  avgAutoFuel: v.number(),
+  avgTeleopFuel: v.number(),
+  avgUncountedFuel: v.number(),
+  avgEndgameFuel: v.number(),
+  avgTotalFuel: v.number(),
+  avgClimbPoints: v.number(),
+  avgPassing: v.number(),
+  avgDriver: v.number(),
+  avgDefense: v.number(),
+  avgAccuracy: v.number(),
+  avgBps: v.number(),
+  avgAdjustedBps: v.number(),
+  bpsReportCount: v.number(),
+  minTotalFuel: v.number(),
+  maxTotalFuel: v.number(),
+  brokeCount: v.number(),
+  inconsistentCount: v.number(),
+});
+
 const tier = v.union(
   v.literal("t1"), v.literal("t2"), v.literal("t3"),
   v.literal("dnp"), v.literal("uncategorized"),
@@ -213,7 +236,9 @@ export default defineSchema({
     photoId: v.union(v.id("_storage"), v.null()),
   })
     .index("by_event", ["eventId"])
-    .index("by_event_team", ["eventId", "teamId"]),
+    .index("by_event_team", ["eventId", "teamId"])
+    // Each scouting team's own pit reports.
+    .index("by_event_scouting_team", ["eventId", "scoutingTeamNumber"]),
 
   matchReports: defineTable({
     eventId: v.id("events"),
@@ -264,7 +289,13 @@ export default defineSchema({
     .index("by_event", ["eventId"])
     .index("by_event_team", ["eventId", "teamId"])
     .index("by_match", ["matchId"])
-    .index("by_scout", ["scoutId"]),
+    .index("by_scout", ["scoutId"])
+    // One scout's reports at one event. by_scout alone spans every event
+    // the scout has ever worked.
+    .index("by_scout_event", ["scoutId", "eventId"])
+    // Attention items read only flagged reports, not the whole event.
+    .index("by_event_broke", ["eventId", "ratings.broke"])
+    .index("by_event_inconsistent", ["eventId", "ratings.inconsistent"]),
 
   reportEdits: defineTable({
     reportId: v.id("matchReports"),
@@ -348,4 +379,62 @@ export default defineSchema({
   })
     .index("by_list", ["pickListId"])
     .index("by_list_tier", ["pickListId", "tier"]),
+
+  /**
+   * Match reports per team per event. Denormalised so a count never means
+   * reading the reports: the team list re-ran on every submission, on every
+   * phone, and read every report each time. Maintained by bumpReportCount;
+   * events:rebuildReportCounts recomputes it from scratch.
+   */
+  reportCounts: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    count: v.number(),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_event_team", ["eventId", "teamId"]),
+
+  /**
+   * One team's season summary at one event, stored so the board, plot and
+   * match preview read a row per team instead of every report. A cache of
+   * the reports: refreshTeamSummary rewrites a row from that team's reports,
+   * and events:rebuildTeamSummaries rewrites a whole event. No row means no
+   * reports.
+   */
+  teamSummaries: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    summary,
+    updatedAt: v.number(),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_event_team", ["eventId", "teamId"]),
+
+  /**
+   * Which robots were scouted in one match, and how many reports it has.
+   * Coverage is computed from these against the CURRENT schedule, so a
+   * revised schedule needs no rebuild. No row means no reports.
+   */
+  matchTallies: defineTable({
+    eventId: v.id("events"),
+    matchId: v.id("matches"),
+    reportCount: v.number(),
+    /** Distinct team numbers with at least one report in this match. */
+    teamNumbers: v.array(v.number()),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_match", ["matchId"]),
+
+  /** One scout's report quality at one event, for the admin data page. */
+  scoutTallies: defineTable({
+    eventId: v.id("events"),
+    scoutId: v.id("users"),
+    count: v.number(),
+    /** Reports with no time anchor, so fuel could not be split by shift. */
+    noSplit: v.number(),
+    /** Reports submitted before the match could have ended. */
+    early: v.number(),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_event_scout", ["eventId", "scoutId"]),
 });

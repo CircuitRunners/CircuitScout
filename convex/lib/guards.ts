@@ -61,6 +61,41 @@ export function managesTeam(
   return profile.teamNumber === teamNumber;
 }
 
+/**
+ * A primary list belongs to a team: that team's admins and full admins edit
+ * it — the same rule as marking a team picked. A personal list is its
+ * owner's alone.
+ */
+export function canEditList(
+  profile: Doc<"profiles"> | null,
+  userId: Id<"users"> | null,
+  list: Doc<"pickLists">,
+): boolean {
+  if (list.ownerId === null) return managesTeam(profile, list.teamNumber);
+  return userId !== null && list.ownerId === userId;
+}
+
+/**
+ * Who may SEE a list. A primary list: its team, and full admins. A personal
+ * list: its owner, and admins who manage the owner's team — which is how a
+ * team admin reviews submitted lists. `ownerTeam` is the owner's team,
+ * for lists written before teamNumber was stored on them.
+ */
+export function canReadList(
+  profile: Doc<"profiles"> | null,
+  userId: Id<"users"> | null,
+  list: Doc<"pickLists">,
+  ownerTeam: number | undefined,
+): boolean {
+  if (!profile) return false;
+  if (list.ownerId === null) {
+    return (list.teamNumber !== undefined && profile.teamNumber === list.teamNumber)
+      || managesTeam(profile, list.teamNumber);
+  }
+  if (userId !== null && list.ownerId === userId) return true;
+  return managesTeam(profile, list.teamNumber ?? ownerTeam);
+}
+
 /** The team whose data the caller is working with. */
 export function effectiveTeamNumber(
   profile: Doc<"profiles"> | null,

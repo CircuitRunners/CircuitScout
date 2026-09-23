@@ -1,13 +1,18 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import {
-  activeEvent, managesTeam, requireTeamAdmin, requireUser,
+  activeEvent, managesTeam, requireAdmin, requireTeamAdmin, requireUser,
 } from "./lib/guards";
 import {
   countedTeleopFuel,
   submittedBeforeMatchEnd,
   uncountedTeleopFuel,
 } from "./lib/scoring";
+import { bumpReportCount } from "./lib/reportCounts";
+import { refreshTeamSummary } from "./lib/teamSummaries";
+import { refreshMatchTally, refreshScoutTally } from "./lib/coverage";
+import type { Doc, Id } from "./_generated/dataModel";
 export type FlagReason =
   | "early"          // finished before the buzzer
   | "no-split"       // no time anchor, fuel not attributable to a shift
@@ -20,6 +25,25 @@ const REASON_LABELS: Record<FlagReason, string> = {
   "dead-hub": "More dead-hub than counted fuel",
   disagreement: "Auto winner disagrees with other scouts",
 };
+
+/**
+ * A team admin acts on reports written by their own team's scouts; a full
+ * admin on anyone's. The reports view already hid other teams' reports, but
+ * the mutations behind it did not check, so an id was enough.
+ */
+async function assertManagesReport(
+  ctx: MutationCtx,
+  admin: Doc<"profiles">,
+  report: Doc<"matchReports">,
+): Promise<void> {
+  const scout = await ctx.db
+    .query("profiles")
+    .withIndex("by_user", (q) => q.eq("userId", report.scoutId))
+    .first();
+  if (!managesTeam(admin, scout?.teamNumber)) {
+    throw new Error("That report was written by another team's scout.");
+  }
+}
 
 export const flagLabels = query({
   args: {},
@@ -78,17 +102,18 @@ export const reports = query({
       .collect();
     const teamById = new Map(teams.map((t) => [t._id, t]));
 
-    const profiles = await ctx.db.query("profiles").collect();
-    const nameByUser = new Map(profiles.map((p) => [p.userId, p.displayName]));
-    const profileByUser = new Map(profiles.map((p) => [p.userId, p]));
-
-    const allDismissals = await ctx.db.query("flagDismissals").collect();
-    const dismissalsByReport = new Map<string, typeof allDismissals>();
-    for (const d of allDismissals) {
-      const list = dismissalsByReport.get(d.reportId) ?? [];
-      list.push(d);
-      dismissalsByReport.set(d.reportId, list);
-    }
+    // Scouts and dismissers, looked up once each. A few dozen people, against
+    // a profiles table that only grows.
+    const profiles = new Map<Id<"users">, Doc<"profiles"> | null>();
+    const profileFor = async (userId: Id<"users">) => {
+      if (!profiles.has(userId)) {
+        profiles.set(userId, await ctx.db
+          .query("profiles")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .first());
+      }
+      return profiles.get(userId) ?? null;
+    };
 
     // Auto-winner answers per match, for the cross-scout check.
     const answersByMatch = new Map<string, ("red" | "blue")[]>();
@@ -102,7 +127,8 @@ export const reports = query({
     const rows: Row[] = [];
     for (const report of all) {
       // A team admin only sees what their own scouts wrote.
-      if (!managesTeam(me, profileByUser.get(report.scoutId)?.teamNumber)) continue;
+      const scout = await profileFor(report.scoutId);
+      if (!managesTeam(me, scout?.teamNumber)) continue;
       const match = matchById.get(report.matchId);
       const team = teamById.get(report.teamId);
       if (!match || !team) continue;
@@ -137,25 +163,32 @@ export const reports = query({
 
       // A dismissal made before the report was last edited is stale: the edit
       // may be exactly what caused the flag to reappear.
-      const dismissalsFor = dismissalsByReport.get(report._id) ?? [];
+      // Only a flagged report can have a dismissal worth reading, and the
+      // flagDismissals table spans every event.
+      const dismissalsFor = reasons.length === 0
+        ? []
+        : await ctx.db
+            .query("flagDismissals")
+            .withIndex("by_report", (q) => q.eq("reportId", report._id))
+            .collect();
       const live = new Map(
         dismissalsFor
           .filter((d) => d.dismissedAt >= report.updatedAt)
           .map((d) => [d.reason, d]),
       );
 
-      const dismissed = reasons
-        .filter((r) => live.has(r))
-        .map((r) => {
-          const d = live.get(r);
-          return {
-            reason: r,
-            label: REASON_LABELS[r],
-            note: d?.note ?? "",
-            byName: d ? (nameByUser.get(d.dismissedBy) ?? "Unknown") : "Unknown",
-            at: d?.dismissedAt ?? 0,
-          };
+      const dismissed: Row["dismissed"] = [];
+      for (const r of reasons) {
+        const d = live.get(r);
+        if (!d) continue;
+        dismissed.push({
+          reason: r,
+          label: REASON_LABELS[r],
+          note: d.note,
+          byName: (await profileFor(d.dismissedBy))?.displayName ?? "Unknown",
+          at: d.dismissedAt,
         });
+      }
 
       const activeReasons = reasons.filter((r) => !live.has(r));
 
@@ -173,7 +206,7 @@ export const reports = query({
         matchNumber: match.matchNumber,
         teamNumber: team.number,
         teamNickname: team.nickname,
-        scoutName: nameByUser.get(report.scoutId) ?? "Unknown scout",
+        scoutName: scout?.displayName ?? "Unknown scout",
         alliance,
         autoWinner: report.autoWinner,
         counted,
@@ -224,11 +257,13 @@ export const setAutoWinner = mutation({
 
     const report = await ctx.db.get(args.reportId);
     if (!report) throw new Error("That report no longer exists.");
+    await assertManagesReport(ctx, admin, report);
 
     await ctx.db.patch(args.reportId, {
       autoWinner: args.autoWinner,
       updatedAt: Date.now(),
     });
+    await refreshTeamSummary(ctx, report.eventId, report.teamId);
     await ctx.db.insert("reportEdits", {
       reportId: args.reportId,
       editedBy: admin.userId,
@@ -269,6 +304,7 @@ export const deleteReport = mutation({
 
     const report = await ctx.db.get(args.reportId);
     if (!report) throw new Error("That report no longer exists.");
+    await assertManagesReport(ctx, admin, report);
 
     const team = await ctx.db.get(report.teamId);
     const match = await ctx.db.get(report.matchId);
@@ -296,6 +332,10 @@ export const deleteReport = mutation({
     for (const edit of edits) await ctx.db.delete(edit._id);
 
     await ctx.db.delete(args.reportId);
+    await bumpReportCount(ctx, report.eventId, report.teamId, -1);
+    await refreshTeamSummary(ctx, report.eventId, report.teamId);
+    await refreshMatchTally(ctx, report.eventId, report.matchId);
+    await refreshScoutTally(ctx, report.eventId, report.scoutId);
   },
 });
 
@@ -342,6 +382,9 @@ export const deletePitReport = mutation({
 
     const report = await ctx.db.get(args.pitReportId);
     if (!report) throw new Error("That report no longer exists.");
+    if (!managesTeam(admin, report.scoutingTeamNumber)) {
+      throw new Error("That pit report belongs to another team.");
+    }
 
     const team = await ctx.db.get(report.teamId);
     const profiles = await ctx.db.query("profiles").collect();
@@ -405,6 +448,7 @@ export const dismissFlag = mutation({
 
     const report = await ctx.db.get(args.reportId);
     if (!report) throw new Error("That report no longer exists.");
+    await assertManagesReport(ctx, admin, report);
 
     const existing = await ctx.db
       .query("flagDismissals")
@@ -548,5 +592,86 @@ export const settleAttention = mutation({
       reason: args.kind,
       ...fields,
     });
+  },
+});
+
+/**
+ * Events for the usage card, newest first. Deleted events are left out.
+ * Full admins only: the card compares teams, which no single team's admin
+ * needs to see.
+ */
+export const usageEvents = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const events = await ctx.db.query("events").collect();
+    return events
+      .filter((e) => !e.deletedAt)
+      .sort((a, b) => b._creationTime - a._creationTime)
+      .map((e) => ({ eventId: e._id, name: e.name, tbaEventKey: e.tbaEventKey }));
+  },
+});
+
+export type UsageRow = {
+  /** Null for scouts with no team number on their profile. */
+  teamNumber: number | null;
+  scouts: number;
+  matchReports: number;
+  pitReports: number;
+};
+
+/**
+ * Scouting activity at one event, per SCOUTING team. Match reports go to the
+ * scout's current team; pit reports to the team recorded on the report.
+ * Scouts counts people who submitted either kind.
+ *
+ * Reads every report at the event, so the card calls this once per event on
+ * open and on Refresh — never as a live subscription.
+ */
+export const usageForEvent = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args): Promise<UsageRow[]> => {
+    await requireAdmin(ctx);
+    const [reports, pit] = await Promise.all([
+      ctx.db.query("matchReports").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+      ctx.db.query("pitReports").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+    ]);
+
+    const teamOf = new Map<Id<"users">, number | null>();
+    const scoutTeam = async (userId: Id<"users">): Promise<number | null> => {
+      if (!teamOf.has(userId)) {
+        const profile = await ctx.db
+          .query("profiles")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .first();
+        teamOf.set(userId, profile?.teamNumber ?? null);
+      }
+      return teamOf.get(userId) ?? null;
+    };
+
+    const rows = new Map<number | null, UsageRow & { scoutIds: Set<Id<"users">> }>();
+    const rowFor = (teamNumber: number | null) => {
+      let row = rows.get(teamNumber);
+      if (!row) {
+        row = { teamNumber, scouts: 0, matchReports: 0, pitReports: 0, scoutIds: new Set() };
+        rows.set(teamNumber, row);
+      }
+      return row;
+    };
+
+    for (const r of reports) {
+      const row = rowFor(await scoutTeam(r.scoutId));
+      row.matchReports += 1;
+      row.scoutIds.add(r.scoutId);
+    }
+    for (const p of pit) {
+      const row = rowFor(p.scoutingTeamNumber ?? (await scoutTeam(p.scoutId)));
+      row.pitReports += 1;
+      row.scoutIds.add(p.scoutId);
+    }
+
+    return [...rows.values()]
+      .map(({ scoutIds, ...row }) => ({ ...row, scouts: scoutIds.size }))
+      .sort((a, b) => b.matchReports - a.matchReports || b.pitReports - a.pitReports);
   },
 });

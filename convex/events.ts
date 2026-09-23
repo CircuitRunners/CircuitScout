@@ -6,6 +6,10 @@ import {
 } from "./lib/guards";
 import { seedPrimaryEntries } from "./pickLists";
 import type { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import { reportCountsFor } from "./lib/reportCounts";
+import { refreshTeamSummary } from "./lib/teamSummaries";
+import { refreshMatchTally, refreshScoutTally } from "./lib/coverage";
 import type { MutationCtx } from "./_generated/server";
 
 export const active = query({
@@ -17,6 +21,8 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     const events = await ctx.db.query("events").collect();
+    // Read once. This used to be re-read inside the loop, once per event.
+    const allSettings = await ctx.db.query("teamSettings").collect();
     const withCounts = [];
     for (const event of events) {
       const teams = await ctx.db
@@ -27,10 +33,15 @@ export const list = query({
         .query("matches")
         .withIndex("by_event", (q) => q.eq("eventId", event._id))
         .collect();
-      const reports = await ctx.db
+      // The count comes from reportCounts. Whether the event is removable is
+      // checked against the reports themselves: a stale counter must never
+      // make scouting data look deletable.
+      let reportCount = 0;
+      for (const n of (await reportCountsFor(ctx, event._id)).values()) reportCount += n;
+      const anyReport = await ctx.db
         .query("matchReports")
         .withIndex("by_event", (q) => q.eq("eventId", event._id))
-        .collect();
+        .first();
       const pit = await ctx.db
         .query("pitReports")
         .withIndex("by_event", (q) => q.eq("eventId", event._id))
@@ -39,16 +50,17 @@ export const list = query({
         .query("pickLists")
         .withIndex("by_event", (q) => q.eq("eventId", event._id))
         .collect();
-      let entryCount = 0;
+      // Only "is there any" matters here, so stop at the first entry found.
+      let hasEntries = false;
       for (const list of lists) {
-        const entries = await ctx.db
+        const entry = await ctx.db
           .query("pickListEntries")
           .withIndex("by_list", (q) => q.eq("pickListId", list._id))
-          .collect();
-        entryCount += entries.length;
+          .first();
+        if (entry) { hasEntries = true; break; }
       }
 
-      const settings = (await ctx.db.query("teamSettings").collect())
+      const settings = allSettings
         .filter((t) => t.activeEventId === event._id)
         .map((t) => t.teamNumber)
         .sort((a, b) => a - b);
@@ -59,12 +71,11 @@ export const list = query({
         activeForTeams: settings,
         teamCount: teams.length,
         matchCount: matches.length,
-        reportCount: reports.length,
+        reportCount,
         pitCount: pit.length,
-        entryCount,
         // Teams and the schedule come back from TBA in one click. Scouting
         // data does not, so anything holding it is not removable.
-        removable: reports.length === 0 && pit.length === 0 && entryCount === 0,
+        removable: anyReport === null && pit.length === 0 && !hasEntries,
       });
     }
     return withCounts.sort((a, b) => b._creationTime - a._creationTime);
@@ -304,6 +315,10 @@ export const applyImport = internalMutation({
       await seedPrimaryEntries(ctx, eventId, list._id);
     }
 
+    // A revised schedule can move a team to the other alliance, which
+    // changes which of its fuel counted.
+    await ctx.scheduler.runAfter(0, internal.events.rebuildTeamSummaries, { eventId });
+
     return {
       eventId,
       name: args.name,
@@ -467,6 +482,27 @@ async function purgeEventData(ctx: MutationCtx, eventId: Id<"events">) {
       counts.matchReports += 1;
     }
 
+    const counters = await ctx.db
+      .query("reportCounts")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    for (const row of counters) await ctx.db.delete(row._id);
+    const summaries = await ctx.db
+      .query("teamSummaries")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    for (const row of summaries) await ctx.db.delete(row._id);
+    const matchTallies = await ctx.db
+      .query("matchTallies")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    for (const row of matchTallies) await ctx.db.delete(row._id);
+    const scoutTallies = await ctx.db
+      .query("scoutTallies")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    for (const row of scoutTallies) await ctx.db.delete(row._id);
+
     const pit = await ctx.db
       .query("pitReports")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
@@ -620,5 +656,155 @@ export const applyScores = internalMutation({
       updated += 1;
     }
     return { updated };
+  },
+});
+
+/**
+ * Recount one event's match reports from scratch. The counter table is a
+ * cache of the reports, so this is always safe to run — after deploying the
+ * table, or any time a count looks wrong.
+ */
+export const rebuildReportCounts = internalMutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const reports = await ctx.db
+      .query("matchReports")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    const tally = new Map<Id<"teams">, number>();
+    for (const r of reports) tally.set(r.teamId, (tally.get(r.teamId) ?? 0) + 1);
+
+    const existing = await ctx.db
+      .query("reportCounts")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    for (const row of existing) await ctx.db.delete(row._id);
+    for (const [teamId, count] of tally) {
+      await ctx.db.insert("reportCounts", { eventId: args.eventId, teamId, count });
+    }
+    return { reports: reports.length, teams: tally.size };
+  },
+});
+
+/**
+ * Recount every event, one mutation per event so a season's worth of reports
+ * never lands in a single transaction.
+ *   bunx convex run events:rebuildAllReportCounts          (dev)
+ *   bunx convex run --prod events:rebuildAllReportCounts   (prod)
+ */
+export const rebuildAllReportCounts = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const events = await ctx.db.query("events").collect();
+    for (const event of events) {
+      await ctx.scheduler.runAfter(0, internal.events.rebuildReportCounts, {
+        eventId: event._id,
+      });
+    }
+    return { scheduled: events.length };
+  },
+});
+
+/**
+ * Rewrite every stored team summary at one event from its reports. Always
+ * safe to run: after deploying the table, after a re-import (scheduled
+ * automatically), or whenever a team's stats look wrong.
+ */
+export const rebuildTeamSummaries = internalMutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const teams = await ctx.db
+      .query("teams")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    const existing = await ctx.db
+      .query("teamSummaries")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    // Rows for teams no longer at the event, then one refresh per team.
+    const current = new Set(teams.map((t) => t._id));
+    for (const row of existing) {
+      if (!current.has(row.teamId)) await ctx.db.delete(row._id);
+    }
+    for (const team of teams) await refreshTeamSummary(ctx, args.eventId, team._id);
+    return { teams: teams.length };
+  },
+});
+
+/**
+ * Rebuild every event, one mutation per event.
+ *   bunx convex run events:rebuildAllTeamSummaries          (dev)
+ *   bunx convex run --prod events:rebuildAllTeamSummaries   (prod)
+ */
+export const rebuildAllTeamSummaries = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const events = await ctx.db.query("events").collect();
+    for (const event of events) {
+      await ctx.scheduler.runAfter(0, internal.events.rebuildTeamSummaries, {
+        eventId: event._id,
+      });
+    }
+    return { scheduled: events.length };
+  },
+});
+
+/**
+ * Rewrite one event's match and scout tallies from its reports. Always safe
+ * to run: after deploying the tables, or whenever coverage looks wrong.
+ */
+export const rebuildCoverage = internalMutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const [matches, reports, matchRows, scoutRows] = await Promise.all([
+      ctx.db.query("matches").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+      ctx.db.query("matchReports").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+      ctx.db.query("matchTallies").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+      ctx.db.query("scoutTallies").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+    ]);
+
+    // Every match on the schedule or holding a row, and every scout with a
+    // report or a row: refreshing each rewrites or removes it.
+    const matchIds = new Set([...matches.map((m) => m._id), ...matchRows.map((r) => r.matchId)]);
+    for (const matchId of matchIds) await refreshMatchTally(ctx, args.eventId, matchId);
+    const scoutIds = new Set([...reports.map((r) => r.scoutId), ...scoutRows.map((r) => r.scoutId)]);
+    for (const scoutId of scoutIds) await refreshScoutTally(ctx, args.eventId, scoutId);
+
+    return { matches: matchIds.size, scouts: scoutIds.size };
+  },
+});
+
+/**
+ * Rebuild every event's tallies, one mutation per event.
+ *   bunx convex run --prod events:rebuildAllCoverage
+ */
+export const rebuildAllCoverage = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const events = await ctx.db.query("events").collect();
+    for (const event of events) {
+      await ctx.scheduler.runAfter(0, internal.events.rebuildCoverage, { eventId: event._id });
+    }
+    return { scheduled: events.length };
+  },
+});
+
+/**
+ * Everything the io patches store, rebuilt for every event: report counts,
+ * team summaries and coverage tallies. The one command to run on prod after
+ * deploying any of them.
+ *   bunx convex run --prod events:rebuildAllDerived
+ */
+export const rebuildAllDerived = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const events = await ctx.db.query("events").collect();
+    for (const event of events) {
+      const args = { eventId: event._id };
+      await ctx.scheduler.runAfter(0, internal.events.rebuildReportCounts, args);
+      await ctx.scheduler.runAfter(0, internal.events.rebuildTeamSummaries, args);
+      await ctx.scheduler.runAfter(0, internal.events.rebuildCoverage, args);
+    }
+    return { events: events.length };
   },
 });

@@ -7,13 +7,18 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { PageShell } from "@/routes/page-shell";
 import { RolesTable } from "./roles-table";
+import { UsageByTeamCard } from "./usage-card";
+import {
+  AdminRefreshProvider, NotLoaded, RefreshAdminPageButton, RefreshButton,
+} from "./refresh";
+import { useOnDemand } from "./refresh-context";
 import {
   DeletionLog, FlaggedReports, ManageReports, PitReportsAdmin,
   TeamsNeedingAttention,
 } from "./reports-admin";
 import { Button } from "@/components/ui/button";
 import {
-  Card, CardContent, CardDescription, CardHeader, CardTitle,
+  Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -93,7 +98,21 @@ function PurgePanel({
 }
 
 export default function AdminPage() {
-  const events = useQuery(api.events.list);
+  return (
+    <AdminRefreshProvider>
+      <AdminPageBody />
+    </AdminRefreshProvider>
+  );
+}
+
+function AdminPageBody() {
+  // Loaded on demand: events.list reads every imported event's teams,
+  // matches and pit reports, and as a subscription it re-ran on every
+  // submission at any of them.
+  const {
+    data: events, loading: eventsLoading, updatedAt: eventsUpdatedAt,
+    refresh: refreshEvents,
+  } = useOnDemand("events", api.events.list, {});
   const importEvent = useAction(api.tba.importEvent);
   const refreshBoth = useAction(api.refresh.now);
   const epa = useQuery(api.statbotics.forEvent);
@@ -133,6 +152,7 @@ export default function AdminPage() {
         });
       }
       setEventKey("");
+      void refreshEvents();
     } catch (error) {
       toast.error("Import failed", {
         description: error instanceof Error ? error.message : String(error),
@@ -144,7 +164,7 @@ export default function AdminPage() {
 
   return (
     <PageShell
-      title="Admin"
+      title={<>Admin <RefreshAdminPageButton /></>}
       description="Event setup, scout roles and weighting."
     >
       <Card>
@@ -196,10 +216,14 @@ export default function AdminPage() {
             at different competitions can use one deployment. Standing an event
             down changes nothing about its data.
           </CardDescription>
+          <CardAction>
+            <RefreshButton onRefresh={refreshEvents} loading={eventsLoading}
+              updatedAt={eventsUpdatedAt} />
+          </CardAction>
         </CardHeader>
         <CardContent className="space-y-2">
           {events === undefined ? (
-            <p className="text-muted-foreground text-sm">Loading…</p>
+            <NotLoaded loading={eventsLoading} />
           ) : events.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               No events yet. Import one above.
@@ -245,14 +269,14 @@ export default function AdminPage() {
                   <Button variant="outline" size="sm"
                     onClick={() => void setActiveForTeam({
                       eventId: null, teamNumber: targetTeam,
-                    })}>
+                    }).then(() => refreshEvents())}>
                     Stand down for {targetTeam}
                   </Button>
                 ) : (
                   <Button variant="outline" size="sm"
                     onClick={() => void setActiveForTeam({
                       eventId: event._id, teamNumber: targetTeam,
-                    })}>
+                    }).then(() => refreshEvents())}>
                     Activate for {targetTeam}
                   </Button>
                 )}
@@ -287,6 +311,7 @@ export default function AdminPage() {
                         });
                         setPurgeTarget(null);
                         setPurgeKey("");
+                        void refreshEvents();
                       })
                       .catch((error: unknown) =>
                         toast.error("Could not delete", {
@@ -319,6 +344,7 @@ export default function AdminPage() {
                           toast.success(`${event.name} removed`);
                           setRemoving(null);
                           setConfirmKey("");
+                          void refreshEvents();
                         })
                         .catch((error: unknown) =>
                           toast.error("Could not remove", {
@@ -363,7 +389,10 @@ export default function AdminPage() {
                         <Button variant="secondary" size="sm"
                           onClick={() => {
                             void recoverEvent({ eventId: event._id })
-                              .then((r) => toast.success(`${r.name} recovered`))
+                              .then((r) => {
+                                toast.success(`${r.name} recovered`);
+                                void refreshEvents();
+                              })
                               .catch((error: unknown) =>
                                 toast.error("Could not recover", {
                                   description:
@@ -422,6 +451,8 @@ export default function AdminPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      {isFullAdmin ? <UsageByTeamCard myTeamNumber={me?.teamNumber} /> : null}
 
       <Card>
         <CardHeader>

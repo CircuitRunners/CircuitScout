@@ -131,41 +131,42 @@ export const mine = query({
       .collect();
     const byNumber = new Map(matches.map((m) => [m.matchNumber, m]));
 
-    const teams = await ctx.db
-      .query("teams")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .collect();
-    const teamByNumber = new Map(teams.map((t) => [t.number, t]));
-
+    // Match numbers this scout has reported here. Scoped to the event by the
+    // index; by_scout alone pulled in every event the scout ever worked.
+    const matchById = new Map(matches.map((m) => [m._id, m]));
     const myReports = await ctx.db
       .query("matchReports")
-      .withIndex("by_scout", (q) => q.eq("scoutId", userId))
+      .withIndex("by_scout_event", (q) =>
+        q.eq("scoutId", userId).eq("eventId", event._id))
       .collect();
     const reportedMatchNumbers = new Set(
       myReports.flatMap((r) => {
-        const match = matches.find((m) => m._id === r.matchId);
+        const match = matchById.get(r.matchId);
         return match ? [match.matchNumber] : [];
       }),
     );
 
     // "Current" is the furthest match anyone has reported. Pooled across
-    // scouts — scout 1 finishing qual 12 moves everyone on to 13 — and taken
-    // from this scout's own reports too, so your own submission always
-    // advances your own card. TBA results deliberately do not count: a
-    // refresh landing mid-shift would jump the card past matches still
-    // waiting to be scouted. Distance stays in matches rather than minutes,
-    // because scheduled times drift during an event.
-    const allReports = await ctx.db
-      .query("matchReports")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .collect();
-    const reportedMatchIds = new Set(
-      [...allReports, ...myReports].map((r) => r.matchId),
-    );
+    // scouts — scout 1 finishing qual 12 moves everyone on to 13 — and your
+    // own submission always advances your own card. TBA results deliberately
+    // do not count: a refresh landing mid-shift would jump the card past
+    // matches still waiting to be scouted. Distance stays in matches rather
+    // than minutes, because scheduled times drift during an event.
+    //
+    // Walk down from the last match and stop at the first one with a report.
+    // An unplayed match costs an empty index read. This used to collect every
+    // report at the event, so each submission re-read all of them on every
+    // phone with the dashboard open — the single largest I/O cost.
     let current = 0;
-    for (const match of matches) {
-      if (reportedMatchIds.has(match._id) && match.matchNumber > current) {
+    const newestFirst = [...matches].sort((a, b) => b.matchNumber - a.matchNumber);
+    for (const match of newestFirst) {
+      const hit = await ctx.db
+        .query("matchReports")
+        .withIndex("by_match", (q) => q.eq("matchId", match._id))
+        .first();
+      if (hit) {
         current = match.matchNumber;
+        break;
       }
     }
 
@@ -216,6 +217,16 @@ export const mine = query({
       .filter((n) => n > current)
       .sort((a, b) => a - b)[0] ?? null;
 
+    // One team row for the card, rather than the whole roster.
+    const nextTeamNumber = next?.teamNumber ?? null;
+    const nextNickname = nextTeamNumber === null
+      ? null
+      : ((await ctx.db
+          .query("teams")
+          .withIndex("by_event_number", (q) =>
+            q.eq("eventId", event._id).eq("number", nextTeamNumber))
+          .first())?.nickname ?? null);
+
     const upNext: {
       matchNumber: number;
       /** Null when nothing is assigned: no badge, no robot, no button. */
@@ -229,9 +240,7 @@ export const mine = query({
           matchNumber: next.matchNumber,
           station: next.station,
           teamNumber: next.teamNumber,
-          nickname: next.teamNumber
-            ? (teamByNumber.get(next.teamNumber)?.nickname ?? null)
-            : null,
+          nickname: nextNickname,
           matchesAway: Math.max(0, next.matchNumber - current),
           assigned: true,
         }

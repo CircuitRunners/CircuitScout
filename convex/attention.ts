@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { activeEvent, currentProfile, requireUser } from "./lib/guards";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 /**
  * Who may settle an item. Trusted scouts are included deliberately: they are
@@ -30,37 +30,55 @@ export const forEvent = query({
     const event = await activeEvent(ctx);
     if (!event) return [];
 
-    const reports = await ctx.db
-      .query("matchReports")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .collect();
+    // Only reports that carry a flag, straight off the index. Reading every
+    // report to find the few with one re-ran on each submission, on every
+    // phone with the teams tab open.
+    const [broke, inconsistent] = await Promise.all([
+      ctx.db
+        .query("matchReports")
+        .withIndex("by_event_broke", (q) =>
+          q.eq("eventId", event._id).eq("ratings.broke", true))
+        .collect(),
+      ctx.db
+        .query("matchReports")
+        .withIndex("by_event_inconsistent", (q) =>
+          q.eq("eventId", event._id).eq("ratings.inconsistent", true))
+        .collect(),
+    ]);
+    // A report flagged both ways comes back from both indexes.
+    const reports = new Map<Id<"matchReports">, Doc<"matchReports">>();
+    for (const r of [...broke, ...inconsistent]) reports.set(r._id, r);
 
-    const profiles = await ctx.db.query("profiles").collect();
-    const byUser = new Map(profiles.map((p) => [p.userId, p]));
-    const teams = await ctx.db
-      .query("teams")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .collect();
-    const teamById = new Map(teams.map((t) => [t._id, t]));
-    const matches = await ctx.db
-      .query("matches")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .collect();
-    const matchById = new Map(matches.map((m) => [m._id, m]));
-
-    const dismissals = await ctx.db.query("flagDismissals").collect();
+    // A handful of scouts, looked up once each, rather than the whole
+    // profiles table.
+    const names = new Map<Id<"users">, string>();
+    const scoutName = async (userId: Id<"users">): Promise<string> => {
+      const known = names.get(userId);
+      if (known !== undefined) return known;
+      const profile = await ctx.db
+        .query("profiles")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .first();
+      const name = profile?.displayName ?? "Unknown scout";
+      names.set(userId, name);
+      return name;
+    };
 
     const rows = [];
-    for (const report of reports) {
-      const team = teamById.get(report.teamId);
+    for (const report of reports.values()) {
+      const team = await ctx.db.get(report.teamId);
       if (!team) continue;
+      const match = await ctx.db.get(report.matchId);
+      const dismissals = await ctx.db
+        .query("flagDismissals")
+        .withIndex("by_report", (q) => q.eq("reportId", report._id))
+        .collect();
 
       for (const kind of ["broke", "inconsistent"] as const) {
         if (!report.ratings[kind]) continue;
         // A decision made before the report changed is stale.
-        const settled = dismissals.find(
-          (d) => d.reportId === report._id && d.reason === kind &&
-                 d.dismissedAt >= report.updatedAt,
+        const settled = dismissals.some(
+          (d) => d.reason === kind && d.dismissedAt >= report.updatedAt,
         );
         if (settled) continue;
 
@@ -70,8 +88,8 @@ export const forEvent = query({
           teamId: report.teamId,
           teamNumber: team.number,
           nickname: team.nickname,
-          matchNumber: matchById.get(report.matchId)?.matchNumber ?? 0,
-          scoutName: byUser.get(report.scoutId)?.displayName ?? "Unknown scout",
+          matchNumber: match?.matchNumber ?? 0,
+          scoutName: await scoutName(report.scoutId),
           detail: kind === "broke"
             ? report.ratings.brokeNotes
             : report.ratings.inconsistentNotes,

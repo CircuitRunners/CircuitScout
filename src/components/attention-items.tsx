@@ -38,9 +38,12 @@ export function AttentionBadge({ count }: { count: number }) {
 export function AttentionCard({
   row,
   showTeam = false,
+  onSettled,
 }: {
   row: AttentionRow;
   showTeam?: boolean;
+  /** For lists that are not live subscriptions, to reload after a change. */
+  onSettled?: () => void;
 }) {
   const settle = useMutation(api.attention.settle);
   const permissions = useQuery(api.attention.permissions);
@@ -62,7 +65,10 @@ export function AttentionCard({
       state: mode,
       note,
     })
-      .then(() => toast.success(mode === "resolved" ? "Marked resolved" : "Dismissed"))
+      .then(() => {
+        toast.success(mode === "resolved" ? "Marked resolved" : "Dismissed");
+        onSettled?.();
+      })
       .catch((error: unknown) =>
         toast.error("Failed", {
           description: error instanceof Error ? error.message : String(error),

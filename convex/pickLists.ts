@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import {
-  activeEvent, currentProfile, managesTeam, requireTeamAdmin, requireUser,
+  activeEvent, currentProfile, managesTeam, requireTeamAdmin, requireUser, canEditList, canReadList,
 } from "./lib/guards";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -100,16 +100,17 @@ async function assertCanEdit(
   ctx: MutationCtx,
   listId: Id<"pickLists">,
   userId: Id<"users">,
-  isAdmin: boolean,
+  profile: Doc<"profiles"> | null,
 ): Promise<Doc<"pickLists">> {
   const list = await ctx.db.get(listId);
   if (!list) throw new Error("That list no longer exists.");
-  // The primary list is the team's, so only an admin edits it. Personal lists
-  // are the scout's own working notes and nobody else touches them.
-  if (list.ownerId === null) {
-    if (!isAdmin) throw new Error("Only your team's admin can edit the primary list.");
-  } else if (list.ownerId !== userId) {
-    throw new Error("That is someone else's list.");
+  // The primary list is the team's, so only that team's admins edit it.
+  // Personal lists are the scout's own working notes and nobody else
+  // touches them.
+  if (!canEditList(profile, userId, list)) {
+    throw new Error(list.ownerId === null
+      ? "Only your team's admin can edit the primary list."
+      : "That is someone else's list.");
   }
   return list;
 }
@@ -122,12 +123,14 @@ export const get = query({
     const profile = await currentProfile(ctx);
     const userId = profile?.userId ?? null;
 
-    const canEdit =
-      list.ownerId === null
-        ? profile?.role === "admin"
-        : list.ownerId === userId;
+    // An id in a URL is not permission. Another team's lists read as absent.
+    const owner = list.ownerId === null ? null : await ctx.db
+      .query("profiles")
+      .withIndex("by_user", (q) => q.eq("userId", list.ownerId!))
+      .first();
+    if (!canReadList(profile, userId, list, owner?.teamNumber)) return null;
 
-    return { ...list, canEdit };
+    return { ...list, canEdit: canEditList(profile, userId, list) };
   },
 });
 
@@ -257,7 +260,7 @@ export const rename = mutation({
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
     const profile = await currentProfile(ctx);
-    await assertCanEdit(ctx, args.listId, userId, profile?.role === "admin");
+    await assertCanEdit(ctx, args.listId, userId, profile);
     const name = args.name.trim();
     if (name === "") throw new Error("Give the list a name.");
     await ctx.db.patch(args.listId, { name });
@@ -269,7 +272,7 @@ export const remove = mutation({
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
     const profile = await currentProfile(ctx);
-    const list = await assertCanEdit(ctx, args.listId, userId, profile?.role === "admin");
+    const list = await assertCanEdit(ctx, args.listId, userId, profile);
     if (list.isPrimary) throw new Error("The primary list cannot be deleted.");
 
     const entries = await ctx.db

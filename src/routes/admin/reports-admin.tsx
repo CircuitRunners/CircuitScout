@@ -14,8 +14,10 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card, CardContent, CardDescription, CardHeader, CardTitle,
+  Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
+import { NotLoaded, RefreshButton } from "./refresh";
+import { useAdminRefresh, useOnDemand } from "./refresh-context";
 import { Input } from "@/components/ui/input";
 
 type Row = {
@@ -76,12 +78,15 @@ function ReportRow({ row }: { row: Row }) {
 
   const flip = row.autoWinner === "red" ? "blue" : "red";
   const id = row.reportId as Id<"matchReports">;
+  const { refresh } = useAdminRefresh();
+  const reloadReports = () => void refresh(["flagged", "manage", "attention"]);
 
   const dismiss = async (reason: string) => {
     setBusy(true);
     try {
       await dismissFlag({ reportId: id, reason, note: dismissNote });
       toast.success("Flag dismissed");
+      reloadReports();
       setDismissing(null);
       setDismissNote("");
     } catch (error) {
@@ -97,6 +102,7 @@ function ReportRow({ row }: { row: Row }) {
     try {
       await restoreFlag({ reportId: id, reason });
       toast.success("Flag restored");
+      reloadReports();
     } catch (error) {
       toast.error("Failed", {
         description: error instanceof Error ? error.message : String(error),
@@ -117,6 +123,7 @@ function ReportRow({ row }: { row: Row }) {
       setAction("none");
       setReason("");
       setConfirmText("");
+      reloadReports();
     } catch (error) {
       toast.error("Failed", {
         description: error instanceof Error ? error.message : String(error),
@@ -259,7 +266,8 @@ function ReportRow({ row }: { row: Row }) {
 }
 
 export function FlaggedReports() {
-  const rows = useQuery(api.admin.reports, { onlyFlagged: true });
+  const { data: rows, loading, updatedAt, refresh } =
+    useOnDemand("flagged", api.admin.reports, { onlyFlagged: true });
 
   return (
     <Card>
@@ -271,10 +279,13 @@ export function FlaggedReports() {
           flag stays visible here with its note, and comes back automatically if
           the report is edited afterwards.
         </CardDescription>
+        <CardAction>
+          <RefreshButton onRefresh={refresh} loading={loading} updatedAt={updatedAt} />
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-2">
         {rows === undefined ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <NotLoaded loading={loading} />
         ) : rows.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             Nothing flagged. Note that a report with no time anchor cannot be
@@ -290,7 +301,8 @@ export function FlaggedReports() {
 }
 
 export function ManageReports() {
-  const rows = useQuery(api.admin.reports, { onlyFlagged: false });
+  const { data: rows, loading, updatedAt, refresh } =
+    useOnDemand("manage", api.admin.reports, { onlyFlagged: false });
   const [search, setSearch] = useState("");
 
   const shown = useMemo(() => {
@@ -317,6 +329,9 @@ export function ManageReports() {
           reclassifies counted and dead fuel without touching anything the
           scout actually observed.
         </CardDescription>
+        <CardAction>
+          <RefreshButton onRefresh={refresh} loading={loading} updatedAt={updatedAt} />
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-3">
         <Input
@@ -325,7 +340,7 @@ export function ManageReports() {
           onChange={(e) => setSearch(e.target.value)}
         />
         {rows === undefined ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <NotLoaded loading={loading} />
         ) : shown.length === 0 ? (
           <p className="text-muted-foreground text-sm">Nothing matches.</p>
         ) : (
@@ -344,7 +359,8 @@ export function ManageReports() {
 }
 
 export function PitReportsAdmin() {
-  const rows = useQuery(api.admin.pitReports, {});
+  const { data: rows, loading, updatedAt, refresh } =
+    useOnDemand("pit", api.admin.pitReports, {});
   const remove = useMutation(api.admin.deletePitReport);
   const [openId, setOpenId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
@@ -367,6 +383,7 @@ export function PitReportsAdmin() {
     try {
       await remove({ pitReportId: id as Id<"pitReports">, reason });
       toast.success(`Pit report for ${teamNumber} deleted`);
+      void refresh();
       setOpenId(null);
       setReason("");
       setConfirmText("");
@@ -387,6 +404,9 @@ export function PitReportsAdmin() {
           Editing opens the normal pit form. There is one pit report per team,
           so an edit updates it in place rather than adding a second.
         </CardDescription>
+        <CardAction>
+          <RefreshButton onRefresh={refresh} loading={loading} updatedAt={updatedAt} />
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-3">
         <Input
@@ -395,7 +415,7 @@ export function PitReportsAdmin() {
           onChange={(e) => setSearch(e.target.value)}
         />
         {rows === undefined ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <NotLoaded loading={loading} />
         ) : shown.length === 0 ? (
           <p className="text-muted-foreground text-sm">No pit reports yet.</p>
         ) : (
@@ -508,7 +528,8 @@ type AttentionRow = {
 };
 
 export function TeamsNeedingAttention() {
-  const rows = useQuery(api.attention.forEvent);
+  const { data: rows, loading, updatedAt, refresh } =
+    useOnDemand("attention", api.attention.forEvent, {});
 
   return (
     <Card>
@@ -524,10 +545,13 @@ export function TeamsNeedingAttention() {
           facts about a robot, not doubts about the data — an unread one is a
           pick nobody warned you about.
         </CardDescription>
+        <CardAction>
+          <RefreshButton onRefresh={refresh} loading={loading} updatedAt={updatedAt} />
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-2">
         {rows === undefined ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <NotLoaded loading={loading} />
         ) : rows.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             Nothing outstanding.
@@ -535,7 +559,7 @@ export function TeamsNeedingAttention() {
         ) : (
           rows.map((row) => (
             <SharedAttentionCard key={`${row.reportId}-${row.kind}`}
-              row={row as AttentionRow} showTeam />
+              row={row as AttentionRow} showTeam onSettled={() => void refresh()} />
           ))
         )}
       </CardContent>

@@ -3,6 +3,7 @@ import { query } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { activeEvent , currentTeamNumber } from "./lib/guards";
 import { derive, summarise } from "./lib/summarise";
+import { reportCountsFor } from "./lib/reportCounts";
 import type { Doc, Id } from "./_generated/dataModel";
 
 type Tier = "t1" | "t2" | "t3" | "dnp" | "uncategorized";
@@ -15,12 +16,18 @@ type Tier = "t1" | "t2" | "t3" | "dnp" | "uncategorized";
 async function primaryTiers(
   ctx: QueryCtx,
   eventId: Id<"events">,
+  teamNumber: number | undefined,
 ): Promise<Map<string, Tier>> {
-  const primary = await ctx.db
+  // Every scouting team at an event has its own primary list. Taking the
+  // index's first showed another team's tiers whenever two teams shared an
+  // event.
+  if (teamNumber === undefined) return new Map();
+  const primaries = await ctx.db
     .query("pickLists")
     .withIndex("by_event_owner", (q) =>
       q.eq("eventId", eventId).eq("ownerId", null))
-    .first();
+    .collect();
+  const primary = primaries.find((l) => l.teamNumber === teamNumber);
   if (!primary) return new Map();
 
   const entries = await ctx.db
@@ -42,25 +49,19 @@ export const listWithStatus = query({
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
 
+    // activeEvent returned an event, so the caller has a team number.
     const myTeam = await currentTeamNumber(ctx);
-    const pit = (
-      await ctx.db
-        .query("pitReports")
-        .withIndex("by_event", (q) => q.eq("eventId", event._id))
-        .collect()
-    ).filter((p) => p.scoutingTeamNumber === myTeam);
+    const pit = await ctx.db
+      .query("pitReports")
+      .withIndex("by_event_scouting_team", (q) =>
+        q.eq("eventId", event._id).eq("scoutingTeamNumber", myTeam))
+      .collect();
     const scouted = new Set(pit.map((p) => p.teamId));
 
-    const reports = await ctx.db
-      .query("matchReports")
-      .withIndex("by_event", (q) => q.eq("eventId", event._id))
-      .collect();
-    const counts = new Map<string, number>();
-    for (const r of reports) {
-      counts.set(r.teamId, (counts.get(r.teamId) ?? 0) + 1);
-    }
+    // One small row per team, rather than every report at the event.
+    const counts = await reportCountsFor(ctx, event._id);
 
-    const tiers = await primaryTiers(ctx, event._id);
+    const tiers = await primaryTiers(ctx, event._id, myTeam);
 
     return teams
       .sort((a, b) => a.number - b.number)
@@ -165,7 +166,7 @@ export const detail = query({
 
     rows.sort((a, b) => a.matchNumber - b.matchNumber);
 
-    const tiers = await primaryTiers(ctx, event._id);
+    const tiers = await primaryTiers(ctx, event._id, myTeam);
 
     return {
       team,

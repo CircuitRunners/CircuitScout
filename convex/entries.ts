@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { currentProfile, requireUser } from "./lib/guards";
+import { canEditList, canReadList, currentProfile, requireUser } from "./lib/guards";
 
 const tier = v.union(
   v.literal("t1"), v.literal("t2"), v.literal("t3"),
@@ -10,6 +10,16 @@ const tier = v.union(
 export const forList = query({
   args: { listId: v.id("pickLists") },
   handler: async (ctx, args) => {
+    // Same rule as pickLists.get: another team's list reads as empty.
+    const list = await ctx.db.get(args.listId);
+    if (!list) return [];
+    const profile = await currentProfile(ctx);
+    const owner = list.ownerId === null ? null : await ctx.db
+      .query("profiles")
+      .withIndex("by_user", (q) => q.eq("userId", list.ownerId!))
+      .first();
+    if (!canReadList(profile, profile?.userId ?? null, list, owner?.teamNumber)) return [];
+
     const entries = await ctx.db
       .query("pickListEntries")
       .withIndex("by_list", (q) => q.eq("pickListId", args.listId))
@@ -49,12 +59,10 @@ export const move = mutation({
     const list = await ctx.db.get(entry.pickListId);
     if (!list) throw new Error("That list no longer exists.");
 
-    if (list.ownerId === null) {
-      if (profile?.role !== "admin") {
-        throw new Error("Only an admin can edit the primary list.");
-      }
-    } else if (list.ownerId !== userId) {
-      throw new Error("That is someone else's list.");
+    if (!canEditList(profile, userId, list)) {
+      throw new Error(list.ownerId === null
+        ? "Only your team's admin can edit the primary list."
+        : "That is someone else's list.");
     }
 
     await ctx.db.patch(args.entryId, { tier: args.tier, order: args.order });
@@ -72,7 +80,7 @@ export const renormalise = mutation({
     const profile = await currentProfile(ctx);
     const list = await ctx.db.get(args.listId);
     if (!list) throw new Error("That list no longer exists.");
-    if (list.ownerId === null ? profile?.role !== "admin" : list.ownerId !== userId) {
+    if (!canEditList(profile, userId, list)) {
       throw new Error("You cannot edit that list.");
     }
 
@@ -103,12 +111,10 @@ export const setNote = mutation({
     const list = await ctx.db.get(entry.pickListId);
     if (!list) throw new Error("That list no longer exists.");
 
-    if (list.ownerId === null) {
-      if (profile?.role !== "admin") {
-        throw new Error("Only an admin can edit the primary list.");
-      }
-    } else if (list.ownerId !== userId) {
-      throw new Error("That is someone else's list.");
+    if (!canEditList(profile, userId, list)) {
+      throw new Error(list.ownerId === null
+        ? "Only your team's admin can edit the primary list."
+        : "That is someone else's list.");
     }
 
     await ctx.db.patch(args.entryId, { note: args.note });

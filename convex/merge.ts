@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { activeEvent, managesTeam, requireTeamAdmin } from "./lib/guards";
+import { activeEvent, requireTeamAdmin } from "./lib/guards";
 import { assignTiers, consensus, type Vote } from "./lib/consensus";
 import type { Tier } from "./lib/types";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
@@ -43,8 +43,10 @@ async function build(ctx: QueryCtx | MutationCtx, actor: { role: string; teamNum
   for (const list of lists) {
     if (list.ownerId === null) continue;
     const profile = byUser.get(list.ownerId);
-    // A team's merge reads its own scouts' lists and nobody else's.
-    if (actor.role !== "admin" && profile?.teamNumber !== actor.teamNumber) continue;
+    // A team's merge reads its own scouts' lists and nobody else's. Full
+    // admins included: the merge lands in one team's primary list, so votes
+    // from another team's scouts have no business in it.
+    if (actor.teamNumber === undefined || profile?.teamNumber !== actor.teamNumber) continue;
     const voter = profile?.displayName ?? "Unknown scout";
     const weightTier = profile?.weightTier ?? "normal";
 
@@ -124,7 +126,7 @@ async function build(ctx: QueryCtx | MutationCtx, actor: { role: string; teamNum
   // worth seeing before anyone trusts the output.
   const submittedNames = new Set(submitters.map((s) => s.name));
   const missing = profiles
-    .filter((p) => actor.role === "admin" || p.teamNumber === actor.teamNumber)
+    .filter((p) => actor.teamNumber !== undefined && p.teamNumber === actor.teamNumber)
     .map((p) => p.displayName)
     .filter((name) => !submittedNames.has(name));
 
@@ -168,7 +170,11 @@ export const apply = mutation({
       .withIndex("by_event_owner", (q) =>
         q.eq("eventId", built.event._id).eq("ownerId", null))
       .collect();
-    const primary = primaries.find((l) => managesTeam(me, l.teamNumber));
+    // The caller's own team's list. A full admin "manages" every team, so
+    // managesTeam here picked whichever primary came first.
+    const primary = primaries.find(
+      (l) => l.teamNumber !== undefined && l.teamNumber === me.teamNumber,
+    );
     if (!primary) throw new Error("There is no primary list for your team yet.");
 
     const existing = await ctx.db
