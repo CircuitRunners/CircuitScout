@@ -5,6 +5,13 @@ import { activeEventForTeam, currentProfile, requireTeamAdmin } from "./lib/guar
 import { derive, summarise } from "./lib/summarise";
 import type { Doc, Id } from "./_generated/dataModel";
 
+const HOPPER_ROOF_LABELS = {
+  solid: "Solid",
+  expanding: "Expanding solid",
+  net: "Net",
+  none: "No roof",
+} as const;
+
 /** Twelve hours, for team admins only. */
 const COOLDOWN_MS = 12 * 60 * 60 * 1000;
 
@@ -201,6 +208,14 @@ export const forTeam = query({
           fixedShooter: p.scoring.fixed,
           kitbot: p.scoring.kitbot,
           otherScoring: p.scoring.other ? p.scoring.otherText : "",
+          // Blank cells, not zeros, for reports written before the hopper
+          // section existed or where the scout left it empty.
+          hopperRoof: p.hopper?.roof ? HOPPER_ROOF_LABELS[p.hopper.roof] : "",
+          hopperCapacity: p.hopper?.capacity ?? "",
+          hopperExpandedCapacity:
+            p.hopper?.roof === "expanding" || p.hopper?.roof === "net"
+              ? (p.hopper.expandedCapacity ?? "")
+              : "",
           climbLow: p.climb.low,
           climbMid: p.climb.mid,
           climbHigh: p.climb.high,

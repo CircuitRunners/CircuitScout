@@ -1,4 +1,5 @@
 import { useQuery } from "convex/react";
+import { ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
@@ -7,6 +8,10 @@ import { PageShell } from "@/routes/page-shell";
 import { TeamDetail } from "./team-detail";
 import { TeamCard } from "@/components/scouting/team-card";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup,
+  DropdownMenuRadioItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import type { Tier } from "@/lib/types";
 
@@ -19,6 +24,18 @@ const FILTERS: ReadonlyArray<{ value: Filter; label: string }> = [
   { value: "no-matches", label: "No match data" },
 ];
 
+type TeamSort = "number" | "totalFuel" | "climbPoints" | "passing" | "defense" | "driver";
+
+/** Team number ascending; every stat highest first. */
+const TEAM_SORTS: ReadonlyArray<{ value: TeamSort; label: string }> = [
+  { value: "number", label: "Team number" },
+  { value: "totalFuel", label: "Fuel" },
+  { value: "climbPoints", label: "Climb" },
+  { value: "passing", label: "Passing" },
+  { value: "defense", label: "Defense" },
+  { value: "driver", label: "Driver" },
+];
+
 export default function TeamsPage() {
   const teams = useQuery(api.teams.listWithStatus);
   const attention = useQuery(api.attention.forEvent);
@@ -27,6 +44,9 @@ export default function TeamsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort] = useState<TeamSort>("number");
+  // Only subscribed while a stat sort is chosen; team-number order needs none.
+  const stats = useQuery(api.stats.forEvent, sort === "number" ? "skip" : {});
 
   const openParam = searchParams.get("team");
   const openTeam = openParam === null ? null : Number.parseInt(openParam, 10);
@@ -59,6 +79,26 @@ export default function TeamsPage() {
       );
     });
   }, [teams, search, filter, attentionByTeam]);
+
+  // Until stats arrive the list stays in team-number order rather than
+  // flashing an empty page.
+  const sorted = useMemo(() => {
+    if (sort === "number" || !stats) return shown;
+    const value = (teamId: string): number => {
+      const s = stats[teamId];
+      if (!s) return -1;
+      switch (sort) {
+        case "totalFuel": return s.avgTotalFuel;
+        case "climbPoints": return s.avgClimbPoints;
+        case "passing": return s.avgPassing;
+        case "defense": return s.avgDefense;
+        case "driver": return s.avgDriver;
+      }
+    };
+    return [...shown].sort((a, b) => value(b._id) - value(a._id) || a.number - b.number);
+  }, [shown, sort, stats]);
+
+  const sortLabel = TEAM_SORTS.find((s) => s.value === sort)?.label ?? "";
 
   const open = (teamNumber: number) => {
     const next = new URLSearchParams(searchParams);
@@ -115,6 +155,26 @@ export default function TeamsPage() {
             </Button>
           );
         })}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button size="sm" variant={sort === "number" ? "outline" : "default"} />}
+          >
+            {sort === "number" ? "Sort" : `Sort: ${sortLabel}`}
+            <ChevronDown className="size-3" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="min-w-40">
+            <DropdownMenuRadioGroup
+              value={sort}
+              onValueChange={(value) => setSort(value as TeamSort)}
+            >
+              {TEAM_SORTS.map((s) => (
+                <DropdownMenuRadioItem key={s.value} value={s.value} className="py-2.5">
+                  {s.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Input
           className="ml-auto max-w-56"
           placeholder="Team number or name"
@@ -133,7 +193,7 @@ export default function TeamsPage() {
         </p>
       ) : (
         <div className="space-y-2">
-          {shown.map((team) => (
+          {sorted.map((team) => (
             <div key={team._id}
               className={
                 (attentionByTeam.get(team.number) ?? 0) > 0

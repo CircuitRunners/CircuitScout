@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { AlertTriangle, ArrowLeft, LoaderCircle, Play } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, LoaderCircle, Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -15,7 +15,9 @@ import { Stepper } from "@/components/scouting/stepper";
 import { CapabilityCheck } from "@/components/scouting/capability-check";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,7 +26,6 @@ import {
 } from "@/lib/scoring";
 import type { AutoStep, ClimbLevel, StartPosition } from "@/lib/types";
 import { readSteps } from "@/lib/types";
-import { useUIStore } from "@/stores/ui-store";
 
 const CLIMB_OPTIONS: ReadonlyArray<{ value: ClimbLevel; label: string }> = [
   { value: "none", label: "No climb" },
@@ -66,8 +67,9 @@ export default function MatchFormPage() {
   const [editReason, setEditReason] = useState("");
   const [hydrated, setHydrated] = useState(false);
 
-  const period = useUIStore((s) => s.matchFormPeriod);
-  const setPeriod = useUIStore((s) => s.setMatchFormPeriod);
+  // Local state, not the UI store: every match opens on Auto rather than on
+  // whichever tab the previous one was left on.
+  const [period, setPeriod] = useState<"auto" | "teleop" | "conclusion">("auto");
 
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [estimated, setEstimated] = useState(false);
@@ -177,6 +179,24 @@ export default function MatchFormPage() {
   const counted = isWinner === null ? teleopTotal : countedTeleopFuel(byShift, isWinner);
   const dead = isWinner === null ? 0 : uncountedTeleopFuel(byShift, isWinner);
   const suspicious = dead > counted && dead > 0;
+
+  // From this scouting team's own pit report. No line at all when the robot
+  // was never pit scouted or its hopper capacity was left blank.
+  const hopper = data?.hopper ?? null;
+  const hopperLine =
+    hopper && hopper.capacity !== null
+      ? `Hopper Capacity: ${hopper.capacity}`
+        + (hopper.expandedCapacity !== null
+          ? `, Expanded Hopper Capacity: ${hopper.expandedCapacity}`
+          : "")
+      : null;
+
+  const goToTeleop = () => {
+    setPeriod("teleop");
+    // The winner card sits at the bottom of Auto; land at the top of Teleop.
+    document.getElementById("match-form-tabs")
+      ?.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
 
   const missing: string[] = [];
   if (start === null) missing.push("start position");
@@ -325,7 +345,7 @@ export default function MatchFormPage() {
       </Card>
 
       <Tabs value={period} onValueChange={(v) => setPeriod(v as typeof period)}>
-        <TabsList className="w-full">
+        <TabsList id="match-form-tabs" className="w-full scroll-mt-4">
           <TabsTrigger value="auto" className="flex-1">Auto</TabsTrigger>
           <TabsTrigger value="teleop" className="flex-1">Teleop</TabsTrigger>
           <TabsTrigger value="conclusion" className="flex-1">Conclusion</TabsTrigger>
@@ -341,7 +361,10 @@ export default function MatchFormPage() {
           />
 
           <Card>
-            <CardHeader><CardTitle>Auto scoring</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Auto scoring</CardTitle>
+              {hopperLine ? <CardDescription>{hopperLine}</CardDescription> : null}
+            </CardHeader>
             <CardContent className="space-y-6">
               <Stepper label="Fuel scored" value={autoFuel} onChange={setAutoFuel} />
               <Stepper label="Fouls" value={autoFouls} onChange={setAutoFouls}
@@ -375,13 +398,20 @@ export default function MatchFormPage() {
                   </span>
                 </div>
               ) : null}
+              <Button variant="outline" className="h-12 w-full" onClick={goToTeleop}>
+                Switch to Teleop
+                <ArrowRight className="size-4" />
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="teleop" className="space-y-4 pt-4">
           <Card>
-            <CardHeader><CardTitle>Teleop</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Teleop</CardTitle>
+              {hopperLine ? <CardDescription>{hopperLine}</CardDescription> : null}
+            </CardHeader>
             <CardContent className="space-y-6">
               <Stepper label="Fuel scored" value={teleopTotal} onChange={bankTeleop} />
               <Stepper label="Passed from neutral zone"

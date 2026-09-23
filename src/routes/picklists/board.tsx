@@ -26,6 +26,7 @@ import { useUIStore, type SortKey } from "@/stores/ui-store";
 const SORTS: ReadonlyArray<{ key: SortKey; label: string }> = [
   { key: "totalFuel", label: "Fuel" },
   { key: "climbPoints", label: "Climb" },
+  { key: "passing", label: "Passing" },
   { key: "defense", label: "Defense" },
   { key: "driver", label: "Driver" },
 ];
@@ -170,6 +171,7 @@ export default function PickListBoardPage() {
           switch (sort.key) {
             case "totalFuel": return s.avgTotalFuel;
             case "climbPoints": return s.avgClimbPoints;
+            case "passing": return s.avgPassing;
             case "defense": return s.avgDefense;
             case "driver": return s.avgDriver;
           }

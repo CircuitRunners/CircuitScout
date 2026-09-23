@@ -19,6 +19,20 @@ import { Textarea } from "@/components/ui/textarea";
 
 const DRIVETRAINS = ["Swerve", "Tank / WCD", "Mecanum", "Other"] as const;
 
+type HopperRoof = "solid" | "expanding" | "net" | "none";
+
+const HOPPER_ROOFS: ReadonlyArray<{ value: HopperRoof; label: string }> = [
+  { value: "solid", label: "Solid" },
+  { value: "expanding", label: "Expanding solid" },
+  { value: "net", label: "Net" },
+  { value: "none", label: "No roof" },
+];
+
+const roofExpands = (roof: HopperRoof | "") => roof === "expanding" || roof === "net";
+/** Digits only, three at most: a phone keyboard can still slip in a "." or "-". */
+const digitsOnly = (text: string) => text.replace(/\D/g, "").slice(0, 3);
+const toCount = (text: string) => (text === "" ? null : Number.parseInt(text, 10));
+
 type FormState = {
   turret: boolean;
   drumNonFullWidth: boolean;
@@ -27,6 +41,9 @@ type FormState = {
   kitbot: boolean;
   other: boolean;
   otherText: string;
+  hopperRoof: HopperRoof | "";
+  hopperCapacity: string;
+  hopperExpanded: string;
   low: boolean;
   mid: boolean;
   high: boolean;
@@ -42,6 +59,7 @@ type FormState = {
 const BLANK: FormState = {
   turret: false, drumNonFullWidth: false, drumFullWidth: false, fixed: false,
   kitbot: false, other: false, otherText: "",
+  hopperRoof: "", hopperCapacity: "", hopperExpanded: "",
   low: false, mid: false, high: false, duringAuto: false,
   drivetrainBase: "", drivetrainDetail: "", underTrench: false, overBump: false,
   robotNotes: "", otherNotes: "",
@@ -81,6 +99,9 @@ export default function PitFormPage() {
         overBump: report.overBump,
         robotNotes: report.robotNotes,
         otherNotes: report.otherNotes,
+        hopperRoof: report.hopper?.roof ?? "",
+        hopperCapacity: report.hopper?.capacity?.toString() ?? "",
+        hopperExpanded: report.hopper?.expandedCapacity?.toString() ?? "",
       });
     }
     setLoaded(true);
@@ -136,6 +157,13 @@ export default function PitFormPage() {
         robotNotes: form.robotNotes,
         otherNotes: form.otherNotes,
         photoId,
+        hopper: {
+          roof: form.hopperRoof === "" ? null : form.hopperRoof,
+          capacity: toCount(form.hopperCapacity),
+          expandedCapacity: roofExpands(form.hopperRoof)
+            ? toCount(form.hopperExpanded)
+            : null,
+        },
       });
 
       toast.success(`Saved team ${data.team.number}`);
@@ -208,6 +236,49 @@ export default function PitFormPage() {
               onChange={(e) => set("otherText", e.target.value)}
             />
           ) : null}
+
+          <div className="space-y-4 border-t pt-4">
+            <h3 className="font-medium">Hopper capacity</h3>
+            <div className="space-y-2">
+              <Label>Roof type</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {HOPPER_ROOFS.map((option) => (
+                  <Button
+                    key={option.value}
+                    variant={form.hopperRoof === option.value ? "default" : "outline"}
+                    className="h-12"
+                    onClick={() => set("hopperRoof", option.value)}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="hopper-capacity">Max capacity (not expanded)</Label>
+              <Input
+                id="hopper-capacity"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="Fuel"
+                value={form.hopperCapacity}
+                onChange={(e) => set("hopperCapacity", digitsOnly(e.target.value))}
+              />
+            </div>
+            {roofExpands(form.hopperRoof) ? (
+              <div className="space-y-2">
+                <Label htmlFor="hopper-expanded">Max capacity (expanded)</Label>
+                <Input
+                  id="hopper-expanded"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="Fuel"
+                  value={form.hopperExpanded}
+                  onChange={(e) => set("hopperExpanded", digitsOnly(e.target.value))}
+                />
+              </div>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
 

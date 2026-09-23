@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { activeEvent, requireUser } from "./lib/guards";
+import { mine as myPitReport } from "./pit";
 import { MAX_AUTO_CYCLES } from "./lib/scoring";
 import { bumpReportCount } from "./lib/reportCounts";
 import { refreshTeamSummary } from "./lib/teamSummaries";
@@ -122,12 +123,25 @@ export const forMatchAndTeam = query({
 
     const myReport = existing.find((r) => r.scoutId === userId) ?? null;
     const onRed = match.redTeamNumbers.includes(team.number);
+
+    // This scouting team's own pit report, same as the pit page shows. null
+    // means not pit scouted, and the form shows no hopper line at all.
+    const pit = await myPitReport(ctx, event._id, team._id);
+    const expands = pit?.hopper?.roof === "expanding" || pit?.hopper?.roof === "net";
+    const hopper = pit
+      ? {
+          capacity: pit.hopper?.capacity ?? null,
+          expandedCapacity: expands ? (pit.hopper?.expandedCapacity ?? null) : null,
+        }
+      : null;
+
     return {
       match,
       team,
       myReport,
       othersCount: existing.length - (myReport ? 1 : 0),
       alliance: onRed ? "red" : "blue",
+      hopper,
     };
   },
 });

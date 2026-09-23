@@ -8,12 +8,13 @@ import { PageShell } from "@/routes/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-type SortKey = "number" | "totalFuel" | "climbPoints" | "driver" | "defense";
+type SortKey = "number" | "totalFuel" | "climbPoints" | "passing" | "driver" | "defense";
 
 const COLUMNS: ReadonlyArray<{ key: SortKey; label: string }> = [
   { key: "number", label: "Team" },
   { key: "totalFuel", label: "Fuel" },
   { key: "climbPoints", label: "Climb" },
+  { key: "passing", label: "Passing" },
   { key: "driver", label: "Driver" },
   { key: "defense", label: "Defense" },
 ];
@@ -40,6 +41,7 @@ export default function ArchiveEventPage() {
         case "number": return a.teamNumber - b.teamNumber;
         case "totalFuel": return b.stats.avgTotalFuel - a.stats.avgTotalFuel;
         case "climbPoints": return b.stats.avgClimbPoints - a.stats.avgClimbPoints;
+        case "passing": return b.stats.avgPassing - a.stats.avgPassing;
         case "driver": return b.stats.avgDriver - a.stats.avgDriver;
         case "defense": return b.stats.avgDefense - a.stats.avgDefense;
       }
@@ -94,6 +96,7 @@ export default function ArchiveEventPage() {
               <th className="p-3 text-right font-medium">Reports</th>
               <th className="p-3 text-right font-medium">Fuel</th>
               <th className="p-3 text-right font-medium">Climb</th>
+              <th className="p-3 text-right font-medium">Passing</th>
               <th className="p-3 text-right font-medium">Driver</th>
               <th className="p-3 text-right font-medium">Defense</th>
             </tr>
@@ -115,6 +118,9 @@ export default function ArchiveEventPage() {
                 </td>
                 <td className="p-3 text-right tabular-nums">
                   {row.stats.reportCount === 0 ? "—" : row.stats.avgClimbPoints.toFixed(1)}
+                </td>
+                <td className="p-3 text-right tabular-nums">
+                  {row.stats.reportCount === 0 ? "—" : row.stats.avgPassing.toFixed(1)}
                 </td>
                 <td className="p-3 text-right tabular-nums">
                   {row.stats.reportCount === 0 ? "—" : row.stats.avgDriver.toFixed(1)}

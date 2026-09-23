@@ -1,6 +1,6 @@
 import { useQuery } from "convex/react";
 import type { ReactNode } from "react";
-import { AlertTriangle, Pencil, Wrench } from "lucide-react";
+import { AlertTriangle, Package, Pencil, Wrench } from "lucide-react";
 
 import { api } from "../../../convex/_generated/api";
 import { AttentionCard, type AttentionRow } from "@/components/attention-items";
@@ -9,6 +9,30 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { TIER_LABELS, type Tier } from "@/lib/types";
+
+const ROOF_LABELS = {
+  solid: "Solid roof",
+  expanding: "Expanding solid roof",
+  net: "Net roof",
+  none: "No roof",
+} as const;
+
+type HopperRecord = {
+  roof: keyof typeof ROOF_LABELS | null;
+  capacity: number | null;
+  expandedCapacity: number | null;
+};
+
+/** One line, or null when the pit scout left the whole section blank. */
+function hopperSummary(h: HopperRecord | undefined): string | null {
+  if (!h) return null;
+  const parts: string[] = [];
+  if (h.roof) parts.push(ROOF_LABELS[h.roof]);
+  if (h.capacity !== null) parts.push(`holds ${h.capacity}`);
+  const expands = h.roof === "expanding" || h.roof === "net";
+  if (expands && h.expandedCapacity !== null) parts.push(`${h.expandedCapacity} expanded`);
+  return parts.length > 0 ? `Hopper: ${parts.join(" · ")}` : null;
+}
 
 function Stat({
   label, value, suffix = "",
@@ -185,6 +209,12 @@ export function TeamDetail({
                   {data.pitReport.underTrench ? <Badge variant="outline">Under trench</Badge> : null}
                   {data.pitReport.overBump ? <Badge variant="outline">Over bump</Badge> : null}
                 </div>
+                {hopperSummary(data.pitReport.hopper) ? (
+                  <p className="text-sm">
+                    <Package className="mr-1 inline size-3" />
+                    {hopperSummary(data.pitReport.hopper)}
+                  </p>
+                ) : null}
                 <p className="text-sm">
                   <Wrench className="mr-1 inline size-3" />
                   {data.pitReport.drivetrain || "Drivetrain not recorded"}

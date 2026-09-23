@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { activeEvent, currentTeamNumber, requireUser } from "./lib/guards";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -21,12 +21,40 @@ const climbInput = v.object({
   duringAuto: v.boolean(),
 });
 
+const hopperInput = v.object({
+  roof: v.union(
+    v.literal("solid"), v.literal("expanding"), v.literal("net"),
+    v.literal("none"), v.null(),
+  ),
+  capacity: v.union(v.number(), v.null()),
+  expandedCapacity: v.union(v.number(), v.null()),
+});
+
+/** Whole numbers only, and an expanded capacity only where the roof expands. */
+function cleanHopper(h: Infer<typeof hopperInput>): Infer<typeof hopperInput> {
+  const count = (n: number | null, what: string): number | null => {
+    if (n === null) return null;
+    if (!Number.isInteger(n) || n < 0 || n > 999) {
+      throw new Error(`${what} must be a whole number from 0 to 999.`);
+    }
+    return n;
+  };
+  const expands = h.roof === "expanding" || h.roof === "net";
+  return {
+    roof: h.roof,
+    capacity: count(h.capacity, "Hopper capacity"),
+    expandedCapacity: expands
+      ? count(h.expandedCapacity, "Expanded hopper capacity")
+      : null,
+  };
+}
+
 /**
  * One pit report per robot PER SCOUTING TEAM. Two teams at the same
  * competition each keep their own; without this the second team to visit a pit
  * silently overwrote the first.
  */
-async function mine(
+export async function mine(
   ctx: QueryCtx | MutationCtx,
   eventId: Id<"events">,
   teamId: Id<"teams">,
@@ -96,6 +124,8 @@ export const upsert = mutation({
     robotNotes: v.string(),
     otherNotes: v.string(),
     photoId: v.union(v.id("_storage"), v.null()),
+    // Optional so a phone still running the old bundle can save mid-event.
+    hopper: v.optional(hopperInput),
   },
   handler: async (ctx, args) => {
     const scoutId = await requireUser(ctx);
@@ -124,6 +154,8 @@ export const upsert = mutation({
       otherNotes: args.otherNotes,
       // Keep the old photo when this save did not include a new one.
       photoId: args.photoId ?? existing?.photoId ?? null,
+      // An old client that sends no hopper keeps whatever is stored.
+      hopper: args.hopper ? cleanHopper(args.hopper) : existing?.hopper,
       scoutId,
       scoutingTeamNumber,
       updatedAt: Date.now(),

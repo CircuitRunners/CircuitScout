@@ -234,6 +234,17 @@ export default defineSchema({
     robotNotes: v.string(),
     otherNotes: v.string(),
     photoId: v.union(v.id("_storage"), v.null()),
+    /** The pit form's hopper section. Optional: reports written before it
+     *  existed have none. expandedCapacity is only kept for expanding/net
+     *  roofs; the upsert nulls it for anything else. */
+    hopper: v.optional(v.object({
+      roof: v.union(
+        v.literal("solid"), v.literal("expanding"), v.literal("net"),
+        v.literal("none"), v.null(),
+      ),
+      capacity: v.union(v.number(), v.null()),
+      expandedCapacity: v.union(v.number(), v.null()),
+    })),
   })
     .index("by_event", ["eventId"])
     .index("by_event_team", ["eventId", "teamId"])

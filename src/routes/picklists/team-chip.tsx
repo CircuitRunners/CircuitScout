@@ -14,6 +14,7 @@ export type ChipStats = {
   avgDefense: number;
   avgAccuracy: number;
   avgClimbPoints: number;
+  avgPassing: number;
   avgAdjustedBps: number;
 };
 

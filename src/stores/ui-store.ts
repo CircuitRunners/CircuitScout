@@ -10,7 +10,7 @@ import type { Tier } from "@/lib/types";
  * NOT allowed: anything persisted or owned by Convex. Never mirror a query
  * result into this store — subscribe with useQuery instead.
  */
-export type SortKey = "totalFuel" | "climbPoints" | "defense" | "driver";
+export type SortKey = "totalFuel" | "climbPoints" | "passing" | "defense" | "driver";
 export type SortDirection = "asc" | "desc";
 
 type UIState = {
@@ -19,7 +19,6 @@ type UIState = {
   /** Sorting Uncategorized is a VIEW, never a rewrite of stored order. */
   uncategorizedSort: { key: SortKey; direction: SortDirection } | null;
   activeTier: Tier;
-  matchFormPeriod: "auto" | "teleop" | "conclusion";
   /** Which auto-path input the scout prefers. Buttons are the fallback. */
   autoInputMode: "map" | "buttons";
 };
@@ -30,7 +29,6 @@ type UIActions = {
   setDraggingTeamId: (id: string | null) => void;
   setUncategorizedSort: (sort: UIState["uncategorizedSort"]) => void;
   setActiveTier: (tier: Tier) => void;
-  setMatchFormPeriod: (period: UIState["matchFormPeriod"]) => void;
   setAutoInputMode: (mode: UIState["autoInputMode"]) => void;
   reset: () => void;
 };
@@ -40,7 +38,6 @@ const initial: UIState = {
   draggingTeamId: null,
   uncategorizedSort: null,
   activeTier: "uncategorized",
-  matchFormPeriod: "auto",
   autoInputMode: "map",
 };
 
@@ -51,7 +48,6 @@ export const useUIStore = create<UIState & UIActions>()((set) => ({
   setDraggingTeamId: (draggingTeamId) => set({ draggingTeamId }),
   setUncategorizedSort: (uncategorizedSort) => set({ uncategorizedSort }),
   setActiveTier: (activeTier) => set({ activeTier }),
-  setMatchFormPeriod: (matchFormPeriod) => set({ matchFormPeriod }),
   setAutoInputMode: (autoInputMode) => set({ autoInputMode }),
   reset: () => set(initial),
 }));
