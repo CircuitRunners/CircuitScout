@@ -60,6 +60,15 @@ export const list = query({
         if (entry) { hasEntries = true; break; }
       }
 
+      const pitNotes = await ctx.db
+        .query("pitNotes")
+        .withIndex("by_event", (q) => q.eq("eventId", event._id))
+        .collect();
+      const matchNotes = await ctx.db
+        .query("matchNotes")
+        .withIndex("by_event", (q) => q.eq("eventId", event._id))
+        .collect();
+
       const settings = allSettings
         .filter((t) => t.activeEventId === event._id)
         .map((t) => t.teamNumber)
@@ -73,9 +82,11 @@ export const list = query({
         matchCount: matches.length,
         reportCount,
         pitCount: pit.length,
+        noteCount: pitNotes.length + matchNotes.length,
         // Teams and the schedule come back from TBA in one click. Scouting
         // data does not, so anything holding it is not removable.
-        removable: anyReport === null && pit.length === 0 && !hasEntries,
+        removable: anyReport === null && pit.length === 0 && !hasEntries
+          && pitNotes.length === 0 && matchNotes.length === 0,
       });
     }
     return withCounts.sort((a, b) => b._creationTime - a._creationTime);
@@ -377,6 +388,12 @@ export const remove = mutation({
         `${event.name} holds ${reports.length} match and ${pit.length} pit reports. Nothing with scouting data can be removed.`,
       );
     }
+    const anyNote =
+      (await ctx.db.query("pitNotes").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).first()) ??
+      (await ctx.db.query("matchNotes").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).first());
+    if (anyNote) {
+      throw new Error(`${event.name} holds scouting notes. Nothing with scouting data can be removed.`);
+    }
 
     const lists = await ctx.db
       .query("pickLists")
@@ -423,13 +440,15 @@ export const purgePreview = query({
     const event = await ctx.db.get(args.eventId);
     if (!event) return null;
 
-    const [teams, matches, reports, pit, lists, settings] = await Promise.all([
+    const [teams, matches, reports, pit, lists, settings, pitNotes, matchNotes] = await Promise.all([
       ctx.db.query("teams").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
       ctx.db.query("matches").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
       ctx.db.query("matchReports").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
       ctx.db.query("pitReports").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
       ctx.db.query("pickLists").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
       ctx.db.query("teamSettings").collect(),
+      ctx.db.query("pitNotes").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
+      ctx.db.query("matchNotes").withIndex("by_event", (q) => q.eq("eventId", args.eventId)).collect(),
     ]);
 
     const scouts = new Set(reports.map((r) => r.scoutId));
@@ -444,6 +463,7 @@ export const purgePreview = query({
       matches: matches.length,
       matchReports: reports.length,
       pitReports: pit.length,
+      notes: pitNotes.length + matchNotes.length,
       pickLists: lists.length,
       contributingScouts: scouts.size,
       activeFor,
@@ -475,6 +495,20 @@ async function deleteRatings(ctx: MutationCtx, eventId: Id<"events">) {
     .withIndex("by_event", (q) => q.eq("eventId", eventId))
     .collect();
   for (const row of xp) await ctx.db.delete(row._id);
+}
+
+/** Notes-only scouting for one event. Purged with everything else. */
+async function deleteNotes(ctx: MutationCtx, eventId: Id<"events">) {
+  const pit = await ctx.db
+    .query("pitNotes")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .collect();
+  for (const row of pit) await ctx.db.delete(row._id);
+  const match = await ctx.db
+    .query("matchNotes")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .collect();
+  for (const row of match) await ctx.db.delete(row._id);
 }
 
 /** Shared by the immediate purge and the scheduled one. */
@@ -558,6 +592,7 @@ async function purgeEventData(ctx: MutationCtx, eventId: Id<"events">) {
     for (const team of teams) { await ctx.db.delete(team._id); counts.teams += 1; }
 
     await deleteRatings(ctx, args.eventId);
+    await deleteNotes(ctx, args.eventId);
 
     // Any team pointing at this event is left with none rather than a
     // dangling id, so their app says "no active event" instead of breaking.

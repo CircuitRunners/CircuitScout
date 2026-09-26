@@ -1,12 +1,15 @@
 import { Outlet } from "react-router";
 import { AppNav } from "@/components/app-nav";
+import { SeasonProvider } from "@/components/season-provider";
 
 export function AppLayout() {
   return (
     <div className="flex min-h-svh flex-col">
       <AppNav />
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
-        <Outlet />
+        <SeasonProvider>
+          <Outlet />
+        </SeasonProvider>
       </main>
       <footer className="text-muted-foreground py-3 text-center text-xs">
         Created by Tarun A, FRC 1002

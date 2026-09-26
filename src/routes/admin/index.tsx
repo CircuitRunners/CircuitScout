@@ -13,10 +13,7 @@ import {
   AdminRefreshProvider, NotLoaded, RefreshAdminPageButton, RefreshButton,
 } from "./refresh";
 import { useOnDemand } from "./refresh-context";
-import {
-  DeletionLog, FlaggedReports, ManageReports, PitReportsAdmin,
-  TeamsNeedingAttention,
-} from "./reports-admin";
+import { SeasonAdminReports } from "@/routes/seasons";
 import { Button } from "@/components/ui/button";
 import {
   Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle,
@@ -47,7 +44,8 @@ function PurgePanel({
   if (preview === null) return null;
 
   const nothing =
-    preview.matchReports === 0 && preview.pitReports === 0 && preview.pickLists === 0;
+    preview.matchReports === 0 && preview.pitReports === 0 && preview.pickLists === 0
+    && preview.notes === 0;
 
   return (
     <div className="border-destructive mt-1 w-full space-y-3 rounded-md border p-3">
@@ -60,6 +58,7 @@ function PurgePanel({
             ? ` from ${preview.contributingScouts} scouts`
             : ""}</li>
         <li>{preview.pitReports} pit reports</li>
+        {preview.notes > 0 ? <li>{preview.notes} notes</li> : null}
         <li>{preview.pickLists} pick lists, including everyone's personal ones</li>
         <li>{preview.matches} matches and {preview.teams} teams</li>
       </ul>
@@ -288,8 +287,9 @@ function AdminPageBody() {
                   </Button>
                 ) : (
                   <Badge variant="secondary" title="Events holding scouting data cannot be removed">
-                    {event.reportCount + event.pitCount} report
-                    {event.reportCount + event.pitCount === 1 ? "" : "s"}
+                    {event.noteCount > 0
+                      ? `${event.noteCount} note${event.noteCount === 1 ? "" : "s"}`
+                      : `${event.reportCount + event.pitCount} report${event.reportCount + event.pitCount === 1 ? "" : "s"}`}
                   </Badge>
                 )}
 
@@ -456,15 +456,8 @@ function AdminPageBody() {
 
       <RolesTable />
 
-      <TeamsNeedingAttention />
-
-      <FlaggedReports />
-
-      <ManageReports />
-
-      <PitReportsAdmin />
-
-      <DeletionLog />
+      {/* 2026 report tools, or the notes tools for a notes-only season. */}
+      <SeasonAdminReports />
     </PageShell>
   );
 }

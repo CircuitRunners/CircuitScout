@@ -32,6 +32,7 @@ import type * as match13 from "../match13.js";
 import type * as matchReports from "../matchReports.js";
 import type * as matches from "../matches.js";
 import type * as merge from "../merge.js";
+import type * as notes from "../notes.js";
 import type * as pickLists from "../pickLists.js";
 import type * as picked from "../picked.js";
 import type * as pit from "../pit.js";
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   matchReports: typeof matchReports;
   matches: typeof matches;
   merge: typeof merge;
+  notes: typeof notes;
   pickLists: typeof pickLists;
   picked: typeof picked;
   pit: typeof pit;

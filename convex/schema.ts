@@ -152,6 +152,38 @@ export default defineSchema({
   }),
 
   /**
+   * Notes-only scouting, for seasons CircuitScout has no forms for. One pit
+   * note per team per scouting team. Nothing in the 2026 pages reads these,
+   * and nothing in the notes pages reads the 2026 report tables.
+   */
+  pitNotes: defineTable({
+    eventId: v.id("events"),
+    teamId: v.id("teams"),
+    scoutId: v.id("users"),
+    scoutingTeamNumber: v.number(),
+    notes: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_event_team", ["eventId", "teamId"]),
+
+  /** One note per scout per robot per match. Pooled across scouting teams. */
+  matchNotes: defineTable({
+    eventId: v.id("events"),
+    matchId: v.id("matches"),
+    teamId: v.id("teams"),
+    scoutId: v.id("users"),
+    scoutingTeamNumber: v.number(),
+    notes: v.string(),
+    submittedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_event_team", ["eventId", "teamId"])
+    .index("by_event_scout", ["eventId", "scoutId"])
+    .index("by_match", ["matchId"]),
+
+  /**
    * Statbotics EPA for one team at one event. Kept in its own table rather
    * than on teams, so a refresh never touches imported TBA data and a failed
    * fetch leaves the roster intact.
