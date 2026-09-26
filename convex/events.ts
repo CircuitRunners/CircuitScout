@@ -408,6 +408,8 @@ export const remove = mutation({
 
     for (const list of lists) await ctx.db.delete(list._id);
 
+    await deleteRatings(ctx, args.eventId);
+
     await ctx.db.delete(args.eventId);
     return { teams: teams.length, matches: matches.length };
   },
@@ -457,6 +459,23 @@ export const purgePreview = query({
  * orphaned rows rather than rows pointing at an event that no longer exists.
  */
 export const RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Statbotics EPA and match13 xP for one event. Both can be fetched again at
+ * any time, so nothing is lost; left behind, they sat in the tables forever.
+ */
+async function deleteRatings(ctx: MutationCtx, eventId: Id<"events">) {
+  const epa = await ctx.db
+    .query("teamEpa")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .collect();
+  for (const row of epa) await ctx.db.delete(row._id);
+  const xp = await ctx.db
+    .query("teamXp")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .collect();
+  for (const row of xp) await ctx.db.delete(row._id);
+}
 
 /** Shared by the immediate purge and the scheduled one. */
 async function purgeEventData(ctx: MutationCtx, eventId: Id<"events">) {
@@ -537,6 +556,8 @@ async function purgeEventData(ctx: MutationCtx, eventId: Id<"events">) {
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
       .collect();
     for (const team of teams) { await ctx.db.delete(team._id); counts.teams += 1; }
+
+    await deleteRatings(ctx, args.eventId);
 
     // Any team pointing at this event is left with none rather than a
     // dangling id, so their app says "no active event" instead of breaking.

@@ -162,12 +162,13 @@ export const forTeam = query({
     const event = await activeEventForTeam(ctx, teamNumber);
     if (!event) return null;
 
-    const [reports, matches, teams, pit, epaRows, profiles] = await Promise.all([
+    const [reports, matches, teams, pit, epaRows, xpRows, profiles] = await Promise.all([
       ctx.db.query("matchReports").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("matches").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("teams").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("pitReports").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("teamEpa").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
+      ctx.db.query("teamXp").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("profiles").collect(),
     ]);
 
@@ -175,6 +176,7 @@ export const forTeam = query({
     const matchById = new Map(matches.map((m) => [m._id, m]));
     const nameByUser = new Map(profiles.map((p) => [p.userId, p.displayName]));
     const epaByNumber = new Map(epaRows.map((r) => [r.teamNumber, r]));
+    const xpByNumber = new Map(xpRows.map((r) => [r.teamNumber, r]));
 
     const allianceOf = (report: Doc<"matchReports">) => {
       const team = teamById.get(report.teamId);
@@ -290,6 +292,7 @@ export const forTeam = query({
         const s = summarise(byTeam.get(t._id) ?? []);
         summaryByNumber.set(t.number, s);
         const epa = epaByNumber.get(t.number);
+        const xp = xpByNumber.get(t.number);
         return {
           number: t.number,
           nickname: t.nickname,
@@ -319,6 +322,10 @@ export const forTeam = query({
           autoEpa: epa?.autoEpa ?? "",
           teleopEpa: epa?.teleopEpa ?? "",
           endgameEpa: epa?.endgameEpa ?? "",
+          xp: xp?.xp ?? "",
+          autoXp: xp?.autoXp ?? "",
+          teleopXp: xp?.teleopXp ?? "",
+          endgameXp: xp?.endgameXp ?? "",
         };
       });
 
@@ -333,6 +340,8 @@ export const forTeam = query({
       }, 0));
     const projEpa = (nums: number[]) =>
       round1(nums.reduce((sum, n) => sum + (epaByNumber.get(n)?.epa ?? 0), 0));
+    const projXp = (nums: number[]) =>
+      round1(nums.reduce((sum, n) => sum + (xpByNumber.get(n)?.xp ?? 0), 0));
     const reportsFor = (matchId: Id<"matches">, side: string) =>
       reports.filter((r) => r.matchId === matchId && allianceOf(r) === side).length;
     const stamp = (t: number | null | undefined) =>
@@ -358,6 +367,8 @@ export const forTeam = query({
         blueProjScouting: projScouting(m.blueTeamNumbers),
         redProjEpa: projEpa(m.redTeamNumbers),
         blueProjEpa: projEpa(m.blueTeamNumbers),
+        redProjXp: projXp(m.redTeamNumbers),
+        blueProjXp: projXp(m.blueTeamNumbers),
         redReportsCollected: reportsFor(m._id, "red"),
         blueReportsCollected: reportsFor(m._id, "blue"),
       }));

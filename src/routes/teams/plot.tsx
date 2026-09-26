@@ -7,7 +7,7 @@ import { api } from "../../../convex/_generated/api";
 import { PageShell } from "@/routes/page-shell";
 import { Button } from "@/components/ui/button";
 
-type Source = "scouting" | "epa";
+type Source = "scouting" | "epa" | "xp";
 
 type Metric = {
   key: string;
@@ -22,6 +22,7 @@ type Row = {
   reportCount: number;
   stats: Record<string, number> | null;
   epa: { epa: number; autoEpa: number | null; teleopEpa: number | null; endgameEpa: number | null } | null;
+  xp: { xp: number; autoXp: number | null; teleopXp: number | null; endgameXp: number | null } | null;
 };
 
 const s = (key: string): Metric["get"] =>
@@ -42,7 +43,27 @@ const METRICS: ReadonlyArray<Metric> = [
   { key: "epaAuto", label: "EPA auto", source: "epa", get: (r) => r.epa?.autoEpa ?? null },
   { key: "epaTeleop", label: "EPA teleop", source: "epa", get: (r) => r.epa?.teleopEpa ?? null },
   { key: "epaEndgame", label: "EPA endgame", source: "epa", get: (r) => r.epa?.endgameEpa ?? null },
+  // Always offered, whichever stat site the team has chosen, so the two
+  // ratings can be plotted against each other.
+  { key: "xp", label: "xP total", source: "xp", get: (r) => r.xp?.xp ?? null },
+  { key: "xpAuto", label: "xP auto", source: "xp", get: (r) => r.xp?.autoXp ?? null },
+  { key: "xpTeleop", label: "xP teleop", source: "xp", get: (r) => r.xp?.teleopXp ?? null },
+  { key: "xpEndgame", label: "xP endgame", source: "xp", get: (r) => r.xp?.endgameXp ?? null },
 ];
+
+/**
+ * Dead-hub fuel is plotted negative so more of it reads as worse; it is shown
+ * unsigned. Every other metric keeps its sign: xP endgame can genuinely be
+ * below zero, and printing it as positive would be wrong.
+ */
+function display(metric: Metric, v: number): number {
+  return metric.key === "avgUncountedFuel" ? Math.abs(v) : v;
+}
+
+function tickLabel(metric: Metric, v: number): string {
+  const shown = display(metric, v);
+  return Math.abs(shown) >= 100 ? shown.toFixed(0) : shown.toFixed(1);
+}
 
 /** Fraction of values at or below v. Rank-based, so units never matter. */
 function percentile(sorted: number[], v: number): number {
@@ -102,6 +123,7 @@ export default function PlotPage() {
   const teams = useQuery(api.teams.listWithStatus);
   const stats = useQuery(api.stats.forEvent);
   const epaData = useQuery(api.statbotics.forEvent);
+  const xpData = useQuery(api.match13.forEvent);
   const navigate = useNavigate();
 
   const [xKey, setXKey] = useState("avgTotalFuel");
@@ -114,14 +136,16 @@ export default function PlotPage() {
 
   const rows: Row[] = useMemo(() => {
     const epaByTeam = new Map((epaData?.rows ?? []).map((r) => [r.teamNumber, r]));
+    const xpByTeam = new Map((xpData?.rows ?? []).map((r) => [r.teamNumber, r]));
     return (teams ?? []).map((t) => ({
       teamNumber: t.number,
       nickname: t.nickname,
       reportCount: t.reportCount,
       stats: (stats?.[t._id] as unknown as Record<string, number>) ?? null,
       epa: epaByTeam.get(t.number) ?? null,
+      xp: xpByTeam.get(t.number) ?? null,
     }));
-  }, [teams, stats, epaData]);
+  }, [teams, stats, epaData, xpData]);
 
   const plotted = rows.flatMap((row) => {
     const x = xMetric.get(row);
@@ -257,7 +281,7 @@ export default function PlotPage() {
                     <line x1={px(v)} y1={VIEW.h - PAD.b} x2={px(v)} y2={VIEW.h - PAD.b + 4}
                       className="stroke-border" strokeWidth="1" />
                     <text x={px(v)} y={VIEW.h - PAD.b + 15} textAnchor="middle">
-                      {Math.abs(v) >= 100 ? Math.abs(v).toFixed(0) : Math.abs(v).toFixed(1)}                    
+                      {tickLabel(xMetric, v)}                    
                     </text>
                   </g>
                 ))}
@@ -266,7 +290,7 @@ export default function PlotPage() {
                     <line x1={PAD.l - 4} y1={py(v)} x2={PAD.l} y2={py(v)}
                       className="stroke-border" strokeWidth="1" />
                     <text x={PAD.l - 7} y={py(v) + 3} textAnchor="end">
-                      {Math.abs(v) >= 100 ? Math.abs(v).toFixed(0) : Math.abs(v).toFixed(1)}                    
+                      {tickLabel(yMetric, v)}                    
                     </text>
                   </g>
                 ))}
@@ -323,9 +347,9 @@ export default function PlotPage() {
               <p className="text-muted-foreground mb-2 text-xs">{hovered.row.nickname}</p>
               <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
                 <dt className="text-muted-foreground">{xMetric.label}</dt>
-                <dd className="text-right tabular-nums">{Math.abs(hovered.x).toFixed(1)}</dd>                
+                <dd className="text-right tabular-nums">{display(xMetric, hovered.x).toFixed(1)}</dd>                
                 <dt className="text-muted-foreground">{yMetric.label}</dt>
-                <dd className="text-right tabular-nums">{Math.abs(hovered.y).toFixed(1)}</dd>                
+                <dd className="text-right tabular-nums">{display(yMetric, hovered.y).toFixed(1)}</dd>                
                 <dt className="text-muted-foreground">Combined</dt>
                 <dd className="text-right tabular-nums">
                   {Math.round(hovered.combined * 100)}th
@@ -355,7 +379,7 @@ export default function PlotPage() {
             </div>
             {xMetric.source === "scouting" || yMetric.source === "scouting" ? (
               <p className="text-muted-foreground mt-2 text-[10px]">
-                Pick EPA on both axes and these plot too.
+                Pick EPA or xP on both axes and these plot too.
               </p>
             ) : null}
           </div>

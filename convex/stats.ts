@@ -153,6 +153,9 @@ export const forMatch = query({
 
     return {
       matchNumber: match.matchNumber,
+      // For the TBA, Statbotics and match13 links beside the title.
+      eventKey: event.tbaEventKey,
+      tbaMatchKey: match.tbaMatchKey,
       scheduledTime: match.scheduledTime,
       predictedTime: match.predictedTime ?? null,
       actualTime: match.actualTime ?? null,

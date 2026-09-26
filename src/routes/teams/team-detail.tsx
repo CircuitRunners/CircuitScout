@@ -9,6 +9,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { TIER_LABELS, type Tier } from "@/lib/types";
+import { StatLinks } from "@/components/stat-links";
+import { useRatings } from "@/lib/stat-site";
 
 const ROOF_LABELS = {
   solid: "Solid roof",
@@ -51,12 +53,6 @@ const CLIMB_LABEL: Record<string, string> = {
   none: "—", low: "L1", mid: "L2", high: "L3",
 };
 
-function useEpa(teamNumber: number | null) {
-  const data = useQuery(api.statbotics.forEvent);
-  if (teamNumber === null) return null;
-  return data?.rows.find((r) => r.teamNumber === teamNumber) ?? null;
-}
-
 export function TeamDetail({
   teamNumber,
   onClose,
@@ -71,7 +67,10 @@ export function TeamDetail({
     api.teams.detail,
     teamNumber === null ? "skip" : { teamNumber },
   );
-  const epa = useEpa(teamNumber);
+  // EPA or xP, whichever site this team has chosen.
+  const ratings = useRatings();
+  const rating = teamNumber === null ? null : (ratings.byTeam.get(teamNumber) ?? null);
+  const event = useQuery(api.events.active);
   const attention = useQuery(api.attention.forEvent);
   const mine = (attention ?? []).filter((row) => row.teamNumber === teamNumber);
 
@@ -90,6 +89,10 @@ export function TeamDetail({
                 <span>{data.team.nickname}</span>
                 {data.tier !== "uncategorized" ? (
                   <Badge>{TIER_LABELS[data.tier as Tier]}</Badge>
+                ) : null}
+                {event ? (
+                  <StatLinks kind="team" eventKey={event.tbaEventKey}
+                    teamNumber={data.team.number} />
                 ) : null}
               </DialogTitle>
             </DialogHeader>
@@ -112,14 +115,14 @@ export function TeamDetail({
             {/* Report count sits next to the averages deliberately: an average
                 over two matches and one over eleven are not comparable, and a
                 bare number invites treating them as if they were. */}
-              {epa ? (
+              {rating ? (
                 <div className="rounded-lg border p-3">
-                  <p className="text-muted-foreground text-xs">EPA</p>
+                  <p className="text-muted-foreground text-xs">{ratings.metric}</p>
                   <p className="text-xl font-semibold tabular-nums">
-                    {epa.epa.toFixed(1)}
+                    {rating.total.toFixed(1)}
                   </p>
                   <p className="text-muted-foreground text-[10px]">
-                    Statbotics, not your scouting
+                    {ratings.siteName}, not your scouting
                   </p>
                 </div>
               ) : null}

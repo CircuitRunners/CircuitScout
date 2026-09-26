@@ -1,10 +1,9 @@
 import { useQuery } from "convex/react";
 import { Link } from "react-router";
-import { useState } from "react";
-import { ExternalLink } from "lucide-react";
 
 import { api } from "../../convex/_generated/api";
 import { EventExport } from "@/components/event-export";
+import { StatLinks } from "@/components/stat-links";
 import { ShiftRow } from "@/components/shift-picker";
 import { STATION_LABELS, type Station } from "@/lib/types";
 import { PageShell } from "./page-shell";
@@ -12,35 +11,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
-
-/**
- * The mark is hotlinked from TBA, so it can fail — a blocked request, an
- * offline venue, a changed path. Falls back to a generic external-link icon
- * rather than leaving a broken image in the page heading.
- */
-function TbaLink({ eventKey }: { eventKey: string }) {
-  const [markFailed, setMarkFailed] = useState(false);
-
-  return (
-    <a
-      href={`https://www.thebluealliance.com/event/${eventKey}`}
-      target="_blank"
-      rel="noreferrer noopener"
-      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm font-normal transition-colors"
-    >
-      {markFailed ? (
-        <ExternalLink className="size-3.5" />
-      ) : (
-        <img
-          src="/tba.png"          
-          className="size-4 rounded-sm"
-          onError={() => setMarkFailed(true)}
-        />
-      )}
-      The Blue Alliance
-    </a>
-  );
-}
 
 function Metric({
   label, value, hint,
@@ -82,7 +52,7 @@ export default function DashboardPage() {
         event ? (
           <>
             {event.name}
-            <TbaLink eventKey={event.tbaEventKey} />
+            <StatLinks kind="event" eventKey={event.tbaEventKey} />
           </>
         ) : (
           "No active event"

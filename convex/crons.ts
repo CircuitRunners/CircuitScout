@@ -16,7 +16,7 @@ crons.interval(
 // rather than the schedule release. Two hours is often enough to be current
 // without hammering a free API.
 crons.interval(
-  "refresh statbotics and tba",
+  "refresh statbotics, match13 and tba",
   { hours: 2 },
   internal.refresh.scheduled,
   {},

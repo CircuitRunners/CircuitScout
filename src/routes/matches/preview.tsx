@@ -5,6 +5,8 @@ import { Link, useParams } from "react-router";
 import { api } from "../../../convex/_generated/api";
 import { PageShell } from "@/routes/page-shell";
 import { CompareTable } from "@/components/compare-table";
+import { StatLinks } from "@/components/stat-links";
+import { useRatings } from "@/lib/stat-site";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -83,7 +85,7 @@ function Actuals({ side, label }: { side: Robot[]; label: string }) {
 }
 
 export default function MatchPreviewPage() {
-  const epaData = useQuery(api.statbotics.forEvent);
+  const ratings = useRatings();
   const params = useParams();
   const matchNumber = Number.parseInt(params.matchNumber ?? "", 10);
   const data = useQuery(
@@ -107,11 +109,11 @@ export default function MatchPreviewPage() {
     );
   }
 
-  const epaByTeam = new Map((epaData?.rows ?? []).map((r) => [r.teamNumber, r.epa]));
-  const epaSum = (side: Robot[]) =>
-    side.reduce((sum, r) => sum + (epaByTeam.get(r.teamNumber) ?? 0), 0);
-  const epaCovered = (side: Robot[]) =>
-    side.filter((r) => epaByTeam.has(r.teamNumber)).length;
+  // EPA or xP, whichever site this team has chosen.
+  const ratingSum = (side: Robot[]) =>
+    side.reduce((sum, r) => sum + (ratings.byTeam.get(r.teamNumber)?.total ?? 0), 0);
+  const ratingCovered = (side: Robot[]) =>
+    side.filter((r) => ratings.byTeam.has(r.teamNumber)).length;
 
   const redProjected = projected(data.red);
   const blueProjected = projected(data.blue);
@@ -124,7 +126,12 @@ export default function MatchPreviewPage() {
 
   return (
     <PageShell
-      title={`Qual ${data.matchNumber}`}
+      title={
+        <>
+          Qual {data.matchNumber}
+          <StatLinks kind="match" eventKey={data.eventKey} matchKey={data.tbaMatchKey} />
+        </>
+      }
       description="Season averages predict; the reports below record what your scouts saw."
       actions={
         <Button variant="outline" render={<Link to="/matches" />}>
@@ -163,37 +170,37 @@ export default function MatchPreviewPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Projected · EPA</CardTitle>
+            <CardTitle>Projected · {ratings.metric}</CardTitle>
             <CardDescription>
-              Statbotics EPA summed per alliance. Independent of your scouting,
+              {ratings.siteName} {ratings.metric} summed per alliance. Independent of your scouting,
               so a wide gap between the two is worth a look rather than a
               tiebreak.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-6">
-            {epaData === undefined ? (
+            {ratings.loading ? (
               <p className="text-muted-foreground text-sm">Loading…</p>
-            ) : epaByTeam.size === 0 ? (
+            ) : ratings.byTeam.size === 0 ? (
               <p className="text-muted-foreground text-sm">
-                No EPA yet — an admin can pull it from the Admin page.
+                No {ratings.metric} yet — an admin can pull it from the Admin page.
               </p>
             ) : (
               <>
                 <div>
                   <p className="text-xs text-red-600 dark:text-red-400">Red</p>
                   <p className="text-3xl font-semibold tabular-nums">
-                    {epaSum(data.red).toFixed(0)}
+                    {ratingSum(data.red).toFixed(0)}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-blue-600 dark:text-blue-400">Blue</p>
                   <p className="text-3xl font-semibold tabular-nums">
-                    {epaSum(data.blue).toFixed(0)}
+                    {ratingSum(data.blue).toFixed(0)}
                   </p>
                 </div>
-                {epaCovered(data.red) + epaCovered(data.blue) < 6 ? (
+                {ratingCovered(data.red) + ratingCovered(data.blue) < 6 ? (
                   <Badge variant="outline">
-                    Only {epaCovered(data.red) + epaCovered(data.blue)} of 6 have EPA
+                    Only {ratingCovered(data.red) + ratingCovered(data.blue)} of 6 have {ratings.metric}
                   </Badge>
                 ) : null}
               </>

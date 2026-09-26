@@ -1,9 +1,10 @@
 /// <reference types="node" />
 
 import { v } from "convex/values";
-import { action, internalMutation, internalQuery, query } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
+import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { activeEvent, requireTeamAdmin } from "./lib/guards";
+import { activeEvent, requireAdmin, requireTeamAdmin } from "./lib/guards";
 import type { Id } from "./_generated/dataModel";
 
 const BASE = "https://api-statbotics.popcornpenguins.com/v3";
@@ -183,26 +184,49 @@ export const requireAdminCheck = internalQuery({
   },
 });
 
-/** Called by the cron for every event a team currently has active. */
+/** Every event a team currently has active, one request each. */
+async function refreshActiveEvents(ctx: ActionCtx): Promise<{ events: number }> {
+  const events = await ctx.runQuery(internal.statbotics.activeEventKeys, {});
+  let done = 0;
+  for (const event of events) {
+    try {
+      const { rows, sample } = await fetchEvent(event.eventKey);
+      await ctx.runMutation(internal.statbotics.store, {
+        eventId: event.eventId as Id<"events">,
+        rows,
+        sample,
+      });
+      done += 1;
+    } catch {
+      // One event without Statbotics data must not stop the others.
+    }
+  }
+  return { events: done };
+}
+
+/**
+ * Every active event at once. Full admins only: it was public with no check,
+ * so any signed-out client could make the deployment call Statbotics.
+ */
 export const refreshAll = action({
   args: {},
   handler: async (ctx): Promise<{ events: number }> => {
-    const events = await ctx.runQuery(internal.statbotics.activeEventKeys, {});
-    let done = 0;
-    for (const event of events) {
-      try {
-        const { rows, sample } = await fetchEvent(event.eventKey);
-        await ctx.runMutation(internal.statbotics.store, {
-          eventId: event.eventId as Id<"events">,
-          rows,
-          sample,
-        });
-        done += 1;
-      } catch {
-        // One event without Statbotics data must not stop the others.
-      }
-    }
-    return { events: done };
+    await ctx.runQuery(internal.statbotics.requireFullAdminCheck, {});
+    return await refreshActiveEvents(ctx);
+  },
+});
+
+/** The cron's way in. It runs with no signed-in user, so it cannot pass the check above. */
+export const refreshAllScheduled = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ events: number }> => await refreshActiveEvents(ctx),
+});
+
+export const requireFullAdminCheck = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    return true;
   },
 });
 

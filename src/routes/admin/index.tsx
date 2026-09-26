@@ -8,6 +8,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { PageShell } from "@/routes/page-shell";
 import { RolesTable } from "./roles-table";
 import { UsageByTeamCard } from "./usage-card";
+import { StatSourcesCard } from "./stat-sources-card";
 import {
   AdminRefreshProvider, NotLoaded, RefreshAdminPageButton, RefreshButton,
 } from "./refresh";
@@ -114,9 +115,6 @@ function AdminPageBody() {
     refresh: refreshEvents,
   } = useOnDemand("events", api.events.list, {});
   const importEvent = useAction(api.tba.importEvent);
-  const refreshBoth = useAction(api.refresh.now);
-  const epa = useQuery(api.statbotics.forEvent);
-  const [refreshing, setRefreshing] = useState(false);
   const setActiveForTeam = useMutation(api.events.setActiveForTeam);
   const softDelete = useMutation(api.events.softDelete);
   const recoverEvent = useMutation(api.events.recover);
@@ -454,40 +452,7 @@ function AdminPageBody() {
 
       {isFullAdmin ? <UsageByTeamCard myTeamNumber={me?.teamNumber} /> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Statbotics &amp; TBA</CardTitle>
-          <CardDescription>
-            EPA and match scores refresh together every two hours, and only
-            while a team has an event active. Pull them now if you want the
-            numbers current before alliance selection.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
-          <Button variant="outline" disabled={refreshing}
-            onClick={() => {
-              setRefreshing(true);
-              void refreshBoth({})
-                .then((r) =>
-                  toast.success("Refreshed", {
-                    description:
-                      `EPA for ${r.epaTeams} teams · ${r.matchesUpdated} matches updated.`,
-                  }))
-                .catch((error: unknown) =>
-                  toast.error("Refresh failed", {
-                    description: error instanceof Error ? error.message : String(error),
-                  }))
-                .finally(() => setRefreshing(false));
-            }}>
-            Refresh Statbotics/TBA
-          </Button>
-          <span className="text-muted-foreground text-xs">
-            {epa?.fetchedAt
-              ? `${epa.rows.length} teams · pulled ${new Date(epa.fetchedAt).toLocaleString()}`
-              : "Never pulled yet"}
-          </span>
-        </CardContent>
-      </Card>
+      <StatSourcesCard isFullAdmin={isFullAdmin} />
 
       <RolesTable />
 

@@ -118,9 +118,38 @@ export default defineSchema({
   teamSettings: defineTable({
     teamNumber: v.number(),
     activeEventId: v.union(v.id("events"), v.null()),
+    /** Absent means "follow the site-wide default" in siteSettings. */
+    statSite: v.optional(v.union(v.literal("statbotics"), v.literal("match13"))),
     updatedAt: v.number(),
     updatedBy: v.id("users"),
   }).index("by_team", ["teamNumber"]),
+
+  /**
+   * match13 xP for one team at one event: teamEpa's twin. Refreshed on the
+   * same cron and kept apart, so either source failing leaves the other
+   * intact. xp is match13's xpEnd, the rating the team holds now.
+   */
+  teamXp: defineTable({
+    eventId: v.id("events"),
+    teamNumber: v.number(),
+    xp: v.number(),
+    autoXp: v.union(v.number(), v.null()),
+    teleopXp: v.union(v.number(), v.null()),
+    endgameXp: v.union(v.number(), v.null()),
+    fetchedAt: v.number(),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_event_team", ["eventId", "teamNumber"]),
+
+  /**
+   * Deployment-wide settings, one row. For now only the default stat site:
+   * what a team sees until its own admin picks one in teamSettings.
+   */
+  siteSettings: defineTable({
+    defaultStatSite: v.union(v.literal("statbotics"), v.literal("match13")),
+    updatedAt: v.number(),
+    updatedBy: v.id("users"),
+  }),
 
   /**
    * Statbotics EPA for one team at one event. Kept in its own table rather
