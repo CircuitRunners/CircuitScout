@@ -11,11 +11,13 @@ import { CapabilityCheck } from "@/components/scouting/capability-check";
 import { PageShell } from "@/routes/page-shell";
 import { Button } from "@/components/ui/button";
 import {
-  Card, CardContent, CardHeader, CardTitle,
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { SPARE_PARTS, type Spare, type SparePart } from "@/lib/spares";
 
 const DRIVETRAINS = ["Swerve", "Tank / WCD", "Mecanum", "Other"] as const;
 
@@ -54,7 +56,34 @@ type FormState = {
   overBump: boolean;
   robotNotes: string;
   otherNotes: string;
+  spares: Record<SparePart, SpareRow>;
 };
+
+type SpareRow = { on: boolean; quantity: string; specify: string };
+
+const BLANK_SPARES = Object.fromEntries(
+  SPARE_PARTS.map(({ part }) => [part, { on: false, quantity: "", specify: "" }]),
+) as Record<SparePart, SpareRow>;
+
+/** Digits only, no leading zeros: the box can only ever hold a positive whole number. */
+const positiveDigits = (text: string) => text.replace(/\D/g, "").replace(/^0+/, "").slice(0, 3);
+
+/** What a ticked spare is missing, or null when it is complete or unticked. */
+function spareProblem(row: SpareRow): string | null {
+  if (!row.on) return null;
+  const missing: string[] = [];
+  if (row.quantity === "") missing.push("how many");
+  if (row.specify.trim() === "") missing.push("what exactly");
+  return missing.length > 0 ? `Say ${missing.join(" and ")}.` : null;
+}
+
+function sparesFromReport(spares: Spare[] | undefined): Record<SparePart, SpareRow> {
+  const rows = { ...BLANK_SPARES };
+  for (const s of spares ?? []) {
+    rows[s.part] = { on: true, quantity: String(s.quantity), specify: s.specify };
+  }
+  return rows;
+}
 
 const BLANK: FormState = {
   turret: false, drumNonFullWidth: false, drumFullWidth: false, fixed: false,
@@ -63,6 +92,7 @@ const BLANK: FormState = {
   low: false, mid: false, high: false, duringAuto: false,
   drivetrainBase: "", drivetrainDetail: "", underTrench: false, overBump: false,
   robotNotes: "", otherNotes: "",
+  spares: BLANK_SPARES,
 };
 
 export default function PitFormPage() {
@@ -82,6 +112,8 @@ export default function PitFormPage() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  // Problems show once someone tries to save, not while they are still typing.
+  const [showSpareErrors, setShowSpareErrors] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   // Hydrate once. Re-hydrating on every query update would stamp on edits in
@@ -102,6 +134,7 @@ export default function PitFormPage() {
         hopperRoof: report.hopper?.roof ?? "",
         hopperCapacity: report.hopper?.capacity?.toString() ?? "",
         hopperExpanded: report.hopper?.expandedCapacity?.toString() ?? "",
+        spares: sparesFromReport(report.spares),
       });
     }
     setLoaded(true);
@@ -109,6 +142,9 @@ export default function PitFormPage() {
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  const setSpare = (part: SparePart, patch: Partial<SpareRow>) =>
+    setForm((f) => ({ ...f, spares: { ...f.spares, [part]: { ...f.spares[part], ...patch } } }));
 
   const pickPhoto = async (file: File | undefined) => {
     if (!file) return;
@@ -119,6 +155,13 @@ export default function PitFormPage() {
 
   const save = async () => {
     if (!data) return;
+    if (SPARE_PARTS.some(({ part }) => spareProblem(form.spares[part]) !== null)) {
+      setShowSpareErrors(true);
+      toast.error("Fill in the ticked spares", {
+        description: "Each ticked part needs how many and what exactly.",
+      });
+      return;
+    }
     setSaving(true);
     try {
       let photoId: Id<"_storage"> | null = null;
@@ -156,6 +199,13 @@ export default function PitFormPage() {
         overBump: form.overBump,
         robotNotes: form.robotNotes,
         otherNotes: form.otherNotes,
+        spares: SPARE_PARTS
+          .filter(({ part }) => form.spares[part].on)
+          .map(({ part }) => ({
+            part,
+            quantity: Number.parseInt(form.spares[part].quantity, 10),
+            specify: form.spares[part].specify.trim(),
+          })),
         photoId,
         hopper: {
           roof: form.hopperRoof === "" ? null : form.hopperRoof,
@@ -335,6 +385,51 @@ export default function PitFormPage() {
             checked={form.underTrench} onChange={(v) => set("underTrench", v)} />
           <CapabilityCheck id="bump" label="Can cross the bump"
             checked={form.overBump} onChange={(v) => set("overBump", v)} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Spares</CardTitle>
+          <CardDescription>
+            Spare parts the team has in the pit. Tick a part, then say how many
+            and what exactly.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {SPARE_PARTS.map(({ part, label }) => {
+            const row = form.spares[part];
+            const problem = showSpareErrors ? spareProblem(row) : null;
+            return (
+              <div key={part}
+                className={[
+                  "grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2 rounded-lg border p-3",
+                  "sm:grid-cols-[minmax(0,1.3fr)_4.5rem_minmax(0,2fr)] sm:items-center",
+                  problem ? "border-destructive" : "",
+                ].join(" ")}>
+                <label htmlFor={`spare-${part}`}
+                  className="col-span-2 flex min-h-8 cursor-pointer items-center gap-3 sm:col-span-1">
+                  <Checkbox id={`spare-${part}`} checked={row.on}
+                    onCheckedChange={(next: boolean) =>
+                      setSpare(part, next
+                        ? { on: true }
+                        : { on: false, quantity: "", specify: "" })} />
+                  <span className="text-base">{label}</span>
+                </label>
+                <Input aria-label={`${label} quantity`} inputMode="numeric" pattern="[0-9]*"
+                  placeholder="Qty" disabled={!row.on} value={row.quantity}
+                  aria-invalid={problem !== null && row.quantity === ""}
+                  onChange={(e) => setSpare(part, { quantity: positiveDigits(e.target.value) })} />
+                <Input aria-label={`${label} specifics`} placeholder="Specify"
+                  disabled={!row.on} value={row.specify}
+                  aria-invalid={problem !== null && row.specify.trim() === ""}
+                  onChange={(e) => setSpare(part, { specify: e.target.value })} />
+                {problem ? (
+                  <p className="text-destructive col-span-2 text-xs sm:col-span-3">{problem}</p>
+                ) : null}
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 

@@ -1,6 +1,6 @@
 import { useQuery } from "convex/react";
 import type { ReactNode } from "react";
-import { AlertTriangle, Package, Pencil, Wrench } from "lucide-react";
+import { AlertTriangle, Cog, Package, Pencil, Wrench } from "lucide-react";
 
 import { api } from "../../../convex/_generated/api";
 import { AttentionCard, type AttentionRow } from "@/components/attention-items";
@@ -9,6 +9,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { TIER_LABELS, type Tier } from "@/lib/types";
+import { spareText } from "@/lib/spares";
 import { StatLinks } from "@/components/stat-links";
 import { useRatings } from "@/lib/stat-site";
 
@@ -216,6 +217,12 @@ export function TeamDetail({
                   <p className="text-sm">
                     <Package className="mr-1 inline size-3" />
                     {hopperSummary(data.pitReport.hopper)}
+                  </p>
+                ) : null}
+                {(data.pitReport.spares ?? []).length > 0 ? (
+                  <p className="text-sm">
+                    <Cog className="mr-1 inline size-3" />
+                    Spares: {(data.pitReport.spares ?? []).map(spareText).join(" · ")}
                   </p>
                 ) : null}
                 <p className="text-sm">

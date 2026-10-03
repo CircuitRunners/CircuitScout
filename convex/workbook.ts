@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { spareText } from "./lib/spares";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { activeEventForTeam, currentProfile, requireTeamAdmin } from "./lib/guards";
@@ -218,6 +219,7 @@ export const forTeam = query({
             p.hopper?.roof === "expanding" || p.hopper?.roof === "net"
               ? (p.hopper.expandedCapacity ?? "")
               : "",
+          spares: (p.spares ?? []).map(spareText).join("; "),
           climbLow: p.climb.low,
           climbMid: p.climb.mid,
           climbHigh: p.climb.high,

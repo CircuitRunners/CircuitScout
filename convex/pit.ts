@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { activeEvent, currentTeamNumber, requireUser } from "./lib/guards";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
+import { SPARE_PARTS, type Spare } from "./lib/spares";
 
 const scoringInput = v.object({
   turret: v.boolean(),
@@ -47,6 +48,37 @@ function cleanHopper(h: Infer<typeof hopperInput>): Infer<typeof hopperInput> {
       ? count(h.expandedCapacity, "Expanded hopper capacity")
       : null,
   };
+}
+
+const spareInput = v.object({
+  part: v.union(
+    v.literal("intake"), v.literal("indexer"), v.literal("shooter"),
+    v.literal("swerve"), v.literal("other"),
+  ),
+  quantity: v.number(),
+  specify: v.string(),
+});
+
+/**
+ * A ticked spare needs both a count and what exactly it is; the form checks
+ * this too, but the server is what a stale or edited client cannot skip.
+ */
+function cleanSpares(spares: Spare[]): Spare[] {
+  const seen = new Set<string>();
+  const order = new Map(SPARE_PARTS.map((p, i) => [p.part, i]));
+  return spares
+    .map((s) => {
+      if (seen.has(s.part)) throw new Error("Each spare part can only be listed once.");
+      seen.add(s.part);
+      if (!Number.isInteger(s.quantity) || s.quantity < 1 || s.quantity > 999) {
+        throw new Error("Spare quantities must be whole numbers from 1 to 999.");
+      }
+      const specify = s.specify.trim();
+      if (specify === "") throw new Error("Say what each spare is.");
+      if (specify.length > 200) throw new Error("Spare details are limited to 200 characters.");
+      return { part: s.part, quantity: s.quantity, specify };
+    })
+    .sort((a, b) => (order.get(a.part) ?? 0) - (order.get(b.part) ?? 0));
 }
 
 /**
@@ -126,6 +158,8 @@ export const upsert = mutation({
     photoId: v.union(v.id("_storage"), v.null()),
     // Optional so a phone still running the old bundle can save mid-event.
     hopper: v.optional(hopperInput),
+    // Optional for the same reason as hopper.
+    spares: v.optional(v.array(spareInput)),
   },
   handler: async (ctx, args) => {
     const scoutId = await requireUser(ctx);
@@ -156,6 +190,7 @@ export const upsert = mutation({
       photoId: args.photoId ?? existing?.photoId ?? null,
       // An old client that sends no hopper keeps whatever is stored.
       hopper: args.hopper ? cleanHopper(args.hopper) : existing?.hopper,
+      spares: args.spares ? cleanSpares(args.spares) : existing?.spares,
       scoutId,
       scoutingTeamNumber,
       updatedAt: Date.now(),

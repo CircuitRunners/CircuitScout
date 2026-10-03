@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { AlertTriangle, Check, EyeOff, Wrench } from "lucide-react";
+import { AlertTriangle, Check, EyeOff, Settings, Wrench } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -47,7 +47,7 @@ export function AttentionCard({
 }) {
   const settle = useMutation(api.attention.settle);
   const permissions = useQuery(api.attention.permissions);
-  const [mode, setMode] = useState<"none" | "dismissed" | "resolved">("none");
+  const [mode, setMode] = useState<"none" | "dismissed" | "resolved" | "spare">("none");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -62,11 +62,15 @@ export function AttentionCard({
     void settle({
       reportId: row.reportId as Id<"matchReports">,
       kind: row.kind,
-      state: mode,
-      note,
+      // A spare going in is a fix, so it resolves, with the spare as the note.
+      state: mode === "spare" ? "resolved" : mode,
+      note: mode === "spare" ? `Spare used: ${note.trim()}` : note,
     })
       .then(() => {
-        toast.success(mode === "resolved" ? "Marked resolved" : "Dismissed");
+        toast.success(
+          mode === "dismissed" ? "Dismissed"
+            : mode === "spare" ? "Marked resolved · spare used"
+              : "Marked resolved");
         onSettled?.();
       })
       .catch((error: unknown) =>
@@ -112,6 +116,10 @@ export function AttentionCard({
               onClick={() => { setMode(mode === "resolved" ? "none" : "resolved"); setNote(""); }}>
               <Wrench className="size-3" /> Resolve
             </Button>
+            <Button size="sm" variant="ghost" className="bg-muted hover:bg-muted/80"
+              onClick={() => { setMode(mode === "spare" ? "none" : "spare"); setNote(""); }}>
+              <Settings className="size-3" /> Spare used
+            </Button>
             <Button size="sm" variant="outline"
               onClick={() => { setMode(mode === "dismissed" ? "none" : "dismissed"); setNote(""); }}>
               <EyeOff className="size-3" /> Dismiss
@@ -121,14 +129,20 @@ export function AttentionCard({
           {mode !== "none" ? (
             <div className="space-y-2 rounded-md border border-dashed p-3">
               <p className="text-muted-foreground text-xs">
-                {mode === "resolved"
-                  ? "Resolved says the problem was dealt with — a repair, a rematch, a conversation."
-                  : "Dismissed says it was not really a problem."}{" "}
-                Either way the note is what the next person reads.
+                {mode === "spare"
+                  ? "Which spare went in? Confirming resolves the report with this as its note."
+                  : <>
+                      {mode === "resolved"
+                        ? "Resolved says the problem was dealt with — a repair, a rematch, a conversation."
+                        : "Dismissed says it was not really a problem."}{" "}
+                      Either way the note is what the next person reads.
+                    </>}
               </p>
-              <Input placeholder="What happened? (required)" value={note}
+              <Input placeholder={mode === "spare" ? "Which spare? (required)" : "What happened? (required)"} value={note}
                 onChange={(e) => setNote(e.target.value)} />
-              <Button size="sm" variant={mode === "resolved" ? "secondary" : "default"}
+              <Button size="sm"
+                variant={mode === "resolved" ? "secondary" : mode === "spare" ? "ghost" : "default"}
+                className={mode === "spare" ? "bg-muted hover:bg-muted/80" : undefined}
                 disabled={busy || note.trim() === ""} onClick={run}>
                 <Check className="size-3" /> Confirm
               </Button>

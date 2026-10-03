@@ -25,6 +25,7 @@ import type * as lib_coverage from "../lib/coverage.js";
 import type * as lib_guards from "../lib/guards.js";
 import type * as lib_reportCounts from "../lib/reportCounts.js";
 import type * as lib_scoring from "../lib/scoring.js";
+import type * as lib_spares from "../lib/spares.js";
 import type * as lib_summarise from "../lib/summarise.js";
 import type * as lib_teamSummaries from "../lib/teamSummaries.js";
 import type * as lib_types from "../lib/types.js";
@@ -69,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   "lib/guards": typeof lib_guards;
   "lib/reportCounts": typeof lib_reportCounts;
   "lib/scoring": typeof lib_scoring;
+  "lib/spares": typeof lib_spares;
   "lib/summarise": typeof lib_summarise;
   "lib/teamSummaries": typeof lib_teamSummaries;
   "lib/types": typeof lib_types;

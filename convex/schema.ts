@@ -306,6 +306,16 @@ export default defineSchema({
       capacity: v.union(v.number(), v.null()),
       expandedCapacity: v.union(v.number(), v.null()),
     })),
+    /** Spare parts the team keeps in its pit. Optional: reports written
+     *  before the spares section existed have none. */
+    spares: v.optional(v.array(v.object({
+      part: v.union(
+        v.literal("intake"), v.literal("indexer"), v.literal("shooter"),
+        v.literal("swerve"), v.literal("other"),
+      ),
+      quantity: v.number(),
+      specify: v.string(),
+    }))),
   })
     .index("by_event", ["eventId"])
     .index("by_event_team", ["eventId", "teamId"])
