@@ -4,10 +4,12 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
+import { useRanks } from "@/lib/ranks";
 import { PageShell } from "@/routes/page-shell";
 import { Button } from "@/components/ui/button";
+import { MenuSelect } from "@/components/menu-select";
 
-type Source = "scouting" | "epa" | "xp";
+type Source = "scouting" | "epa" | "xp" | "rank";
 
 type Metric = {
   key: string;
@@ -23,6 +25,7 @@ type Row = {
   stats: Record<string, number> | null;
   epa: { epa: number; autoEpa: number | null; teleopEpa: number | null; endgameEpa: number | null } | null;
   xp: { xp: number; autoXp: number | null; teleopXp: number | null; endgameXp: number | null } | null;
+  rank: number | null;
 };
 
 const s = (key: string): Metric["get"] =>
@@ -49,7 +52,12 @@ const METRICS: ReadonlyArray<Metric> = [
   { key: "xpAuto", label: "xP auto", source: "xp", get: (r) => r.xp?.autoXp ?? null },
   { key: "xpTeleop", label: "xP teleop", source: "xp", get: (r) => r.xp?.teleopXp ?? null },
   { key: "xpEndgame", label: "xP endgame", source: "xp", get: (r) => r.xp?.endgameXp ?? null },
+  // Plotted negative, like dead-hub fuel, so rank 1 lands top right with the
+  // best of everything else; labels show it unsigned.
+  { key: "rank", label: "Rank (TBA)", source: "rank", get: (r) => (r.rank === null ? null : -r.rank) },
 ];
+
+const METRIC_OPTIONS = METRICS.map((m) => ({ value: m.key, label: m.label }));
 
 /**
  * Dead-hub fuel is plotted negative so more of it reads as worse; it is shown
@@ -57,11 +65,12 @@ const METRICS: ReadonlyArray<Metric> = [
  * below zero, and printing it as positive would be wrong.
  */
 function display(metric: Metric, v: number): number {
-  return metric.key === "avgUncountedFuel" ? Math.abs(v) : v;
+  return metric.key === "avgUncountedFuel" || metric.key === "rank" ? Math.abs(v) : v;
 }
 
 function tickLabel(metric: Metric, v: number): string {
   const shown = display(metric, v);
+  if (metric.key === "rank") return shown.toFixed(0);
   return Math.abs(shown) >= 100 ? shown.toFixed(0) : shown.toFixed(1);
 }
 
@@ -124,6 +133,7 @@ export default function PlotPage() {
   const stats = useQuery(api.stats.forEvent);
   const epaData = useQuery(api.statbotics.forEvent);
   const xpData = useQuery(api.match13.forEvent);
+  const ranks = useRanks();
   const navigate = useNavigate();
 
   const [xKey, setXKey] = useState("avgTotalFuel");
@@ -144,8 +154,9 @@ export default function PlotPage() {
       stats: (stats?.[t._id] as unknown as Record<string, number>) ?? null,
       epa: epaByTeam.get(t.number) ?? null,
       xp: xpByTeam.get(t.number) ?? null,
+      rank: ranks.byTeam.get(t.number) ?? null,
     }));
-  }, [teams, stats, epaData, xpData]);
+  }, [teams, stats, epaData, xpData, ranks]);
 
   const plotted = rows.flatMap((row) => {
     const x = xMetric.get(row);
@@ -225,15 +236,9 @@ export default function PlotPage() {
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-muted-foreground text-xs">X</span>
-        <select value={xKey} onChange={(e) => setXKey(e.target.value)}
-          className="bg-background rounded-md border px-2 py-1.5 text-sm">
-          {METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-        </select>
+        <MenuSelect label="X axis" value={xKey} options={METRIC_OPTIONS} onChange={setXKey} />
         <span className="text-muted-foreground ml-2 text-xs">Y</span>
-        <select value={yKey} onChange={(e) => setYKey(e.target.value)}
-          className="bg-background rounded-md border px-2 py-1.5 text-sm">
-          {METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-        </select>
+        <MenuSelect label="Y axis" value={yKey} options={METRIC_OPTIONS} onChange={setYKey} />
         <Button size="sm" variant={bands ? "secondary" : "outline"} className="ml-auto"
           onClick={() => setBands(!bands)}>
           Decile bands {bands ? "✓" : ""}
@@ -379,7 +384,7 @@ export default function PlotPage() {
             </div>
             {xMetric.source === "scouting" || yMetric.source === "scouting" ? (
               <p className="text-muted-foreground mt-2 text-[10px]">
-                Pick EPA or xP on both axes and these plot too.
+                Pick EPA, xP or rank on both axes and these plot too.
               </p>
             ) : null}
           </div>

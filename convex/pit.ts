@@ -3,7 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { activeEvent, currentTeamNumber, requireUser } from "./lib/guards";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
-import { SPARE_PARTS, type Spare } from "./lib/spares";
+import { SPARE_PARTS, type Battery, type Spare } from "./lib/spares";
 
 const scoringInput = v.object({
   turret: v.boolean(),
@@ -55,13 +55,32 @@ const spareInput = v.object({
     v.literal("intake"), v.literal("indexer"), v.literal("shooter"),
     v.literal("swerve"), v.literal("other"),
   ),
-  quantity: v.number(),
+  quantity: v.optional(v.number()),
   specify: v.string(),
 });
 
+const batteryInput = v.object({
+  type: v.union(
+    v.literal("mk"), v.literal("energizer"), v.literal("duracell"), v.literal("other"),
+  ),
+  otherType: v.optional(v.string()),
+  quantity: v.optional(v.number()),
+  condition: v.string(),
+});
+
+/** An optional count: absent, or a whole number from 1 to 999. */
+function optionalCount(n: number | undefined, what: string): number | undefined {
+  if (n === undefined) return undefined;
+  if (!Number.isInteger(n) || n < 1 || n > 999) {
+    throw new Error(`${what} must be whole numbers from 1 to 999.`);
+  }
+  return n;
+}
+
 /**
- * A ticked spare needs both a count and what exactly it is; the form checks
- * this too, but the server is what a stale or edited client cannot skip.
+ * A ticked spare needs to say what exactly it is; the count is an optional
+ * estimate. The form checks this too, but the server is what a stale or
+ * edited client cannot skip.
  */
 function cleanSpares(spares: Spare[]): Spare[] {
   const seen = new Set<string>();
@@ -70,15 +89,36 @@ function cleanSpares(spares: Spare[]): Spare[] {
     .map((s) => {
       if (seen.has(s.part)) throw new Error("Each spare part can only be listed once.");
       seen.add(s.part);
-      if (!Number.isInteger(s.quantity) || s.quantity < 1 || s.quantity > 999) {
-        throw new Error("Spare quantities must be whole numbers from 1 to 999.");
-      }
+      const quantity = optionalCount(s.quantity, "Spare quantities");
       const specify = s.specify.trim();
       if (specify === "") throw new Error("Say what each spare is.");
       if (specify.length > 200) throw new Error("Spare details are limited to 200 characters.");
-      return { part: s.part, quantity: s.quantity, specify };
+      // Built field by field so an absent count is left out, not stored as undefined.
+      return quantity === undefined
+        ? { part: s.part, specify }
+        : { part: s.part, quantity, specify };
     })
     .sort((a, b) => (order.get(a.part) ?? 0) - (order.get(b.part) ?? 0));
+}
+
+/** A type and a count on every row, and a brand when the type is Other. */
+function cleanBatteries(batteries: Battery[]): Battery[] {
+  if (batteries.length > 20) throw new Error("List at most 20 battery types.");
+  return batteries.map((b) => {
+    if (b.quantity === undefined) throw new Error("Say how many of each battery.");
+    const quantity = optionalCount(b.quantity, "Battery quantities");
+    const condition = b.condition.trim();
+    if (condition.length > 200) throw new Error("Battery conditions are limited to 200 characters.");
+    const row: Battery = { type: b.type, condition };
+    if (b.type === "other") {
+      const otherType = (b.otherType ?? "").trim();
+      if (otherType === "") throw new Error("Say which brand each Other battery is.");
+      if (otherType.length > 50) throw new Error("Battery brands are limited to 50 characters.");
+      row.otherType = otherType;
+    }
+    if (quantity !== undefined) row.quantity = quantity;
+    return row;
+  });
 }
 
 /**
@@ -160,6 +200,7 @@ export const upsert = mutation({
     hopper: v.optional(hopperInput),
     // Optional for the same reason as hopper.
     spares: v.optional(v.array(spareInput)),
+    batteries: v.optional(v.array(batteryInput)),
   },
   handler: async (ctx, args) => {
     const scoutId = await requireUser(ctx);
@@ -191,6 +232,7 @@ export const upsert = mutation({
       // An old client that sends no hopper keeps whatever is stored.
       hopper: args.hopper ? cleanHopper(args.hopper) : existing?.hopper,
       spares: args.spares ? cleanSpares(args.spares) : existing?.spares,
+      batteries: args.batteries ? cleanBatteries(args.batteries) : existing?.batteries,
       scoutId,
       scoutingTeamNumber,
       updatedAt: Date.now(),

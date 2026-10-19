@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { api } from "../../../convex/_generated/api";
 import { StatLinks } from "@/components/stat-links";
 import { useRatings } from "@/lib/stat-site";
+import { useRanks } from "@/lib/ranks";
+import { RankCard } from "@/components/team-rank";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -24,6 +26,8 @@ export function NotesTeamDetail({
   const data = useQuery(api.notes.forTeam, teamNumber === null ? "skip" : { teamNumber });
   const ratings = useRatings();
   const rating = teamNumber === null ? null : (ratings.byTeam.get(teamNumber) ?? null);
+  const ranks = useRanks();
+  const rank = teamNumber === null ? null : (ranks.byTeam.get(teamNumber) ?? null);
 
   return (
     <Dialog open={teamNumber !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -46,13 +50,18 @@ export function NotesTeamDetail({
               {[data.team.city, data.team.stateProv, data.team.country].filter(Boolean).join(", ")}
             </p>
 
-            {rating ? (
-              <div className="w-fit rounded-lg border p-3">
-                <p className="text-muted-foreground text-xs">{ratings.metric}</p>
-                <p className="text-xl font-semibold tabular-nums">{rating.total.toFixed(1)}</p>
-                <p className="text-muted-foreground text-[10px]">
-                  {ratings.siteName}, not your scouting
-                </p>
+            {rating || rank !== null ? (
+              <div className="flex flex-wrap gap-2">
+              {rating ? (
+                <div className="rounded-lg border p-3">
+                  <p className="text-muted-foreground text-xs">{ratings.metric}</p>
+                  <p className="text-xl font-semibold tabular-nums">{rating.total.toFixed(1)}</p>
+                  <p className="text-muted-foreground text-[10px]">
+                    {ratings.siteName}, not your scouting
+                  </p>
+                </div>
+              ) : null}
+                <RankCard rank={rank} total={ranks.total} />
               </div>
             ) : null}
 

@@ -1,5 +1,5 @@
 import { useAction, useMutation, useQuery } from "convex/react";
-import { CheckCircle2, Download, LoaderCircle, Trash2, Trash, RotateCcw } from "lucide-react";
+import { CheckCircle2, Download, Trash2, Trash, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -21,6 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { LoadingWheel } from "@/components/loading-wheel";
 
 function PurgePanel({
   eventId,
@@ -190,7 +191,7 @@ function AdminPageBody() {
                 onClick={() => void runImport()}
               >
                 {importing ? (
-                  <LoaderCircle className="size-4 animate-spin" />
+                  <LoadingWheel className="size-4" />
                 ) : (
                   <Download className="size-4" />
                 )}

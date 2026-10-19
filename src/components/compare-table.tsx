@@ -1,3 +1,5 @@
+import { useRanks } from "@/lib/ranks";
+
 type Summary = {
   reportCount: number;
   avgAutoFuel: number;
@@ -50,7 +52,14 @@ const METRICS: ReadonlyArray<Metric> = [
 ];
 
 export function CompareTable({ columns }: { columns: CompareColumn[] }) {
+  const ranks = useRanks();
   if (columns.length === 0) return null;
+
+  // Rank comes from TBA, not the summaries, so it is its own row. Lower is
+  // better, and an unranked team never counts as best.
+  const rankOf = (c: CompareColumn) => ranks.byTeam.get(c.teamNumber);
+  const ranked = columns.map(rankOf).filter((r): r is number => r !== undefined);
+  const bestRank = ranked.length > 1 && new Set(ranked).size > 1 ? Math.min(...ranked) : null;
 
   return (
     <div className="overflow-x-auto rounded-lg border">
@@ -69,6 +78,21 @@ export function CompareTable({ columns }: { columns: CompareColumn[] }) {
           </tr>
         </thead>
         <tbody>
+          <tr className="border-b">
+            <td className="text-muted-foreground p-3">Rank (TBA)</td>
+            {columns.map((c) => {
+              const rank = rankOf(c);
+              return (
+                <td key={c.teamNumber}
+                  className={[
+                    "p-3 text-right tabular-nums",
+                    rank !== undefined && rank === bestRank ? "font-semibold" : "",
+                  ].join(" ")}>
+                  {rank ?? "—"}
+                </td>
+              );
+            })}
+          </tr>
           {METRICS.map((metric) => {
             const values = columns.map((c) => metric.get(c.stats));
             // Only mark a winner when the column actually differ; highlighting

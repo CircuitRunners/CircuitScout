@@ -495,6 +495,11 @@ async function deleteRatings(ctx: MutationCtx, eventId: Id<"events">) {
     .withIndex("by_event", (q) => q.eq("eventId", eventId))
     .collect();
   for (const row of xp) await ctx.db.delete(row._id);
+  const ranks = await ctx.db
+    .query("teamRanks")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .collect();
+  for (const row of ranks) await ctx.db.delete(row._id);
 }
 
 /** Notes-only scouting for one event. Purged with everything else. */

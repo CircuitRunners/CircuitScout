@@ -22,8 +22,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TIERS, TIER_LABELS, type Tier } from "@/lib/types";
 import { useUIStore, type SortKey } from "@/stores/ui-store";
+import { compareRanks, useRanks } from "@/lib/ranks";
 
 const SORTS: ReadonlyArray<{ key: SortKey; label: string }> = [
+  { key: "rank", label: "Rank" },
   { key: "totalFuel", label: "Fuel" },
   { key: "climbPoints", label: "Climb" },
   { key: "passing", label: "Passing" },
@@ -115,6 +117,7 @@ export default function PickListBoardPage() {
   const entries = useQuery(api.entries.forList, listId ? { listId } : "skip");
   const teams = useQuery(api.teams.listWithStatus);
   const stats = useQuery(api.stats.forEvent);
+  const ranks = useRanks();
   const move = useMutation(api.entries.move);
   const picked = useQuery(api.picked.forEvent);
   const togglePicked = useMutation(api.picked.toggle);
@@ -164,11 +167,19 @@ export default function PickListBoardPage() {
       rows.sort((a, b) => a.order - b.order);
       // Sorting Uncategorized is a VIEW. It never rewrites stored order, so one
       // tap cannot discard an afternoon of manual ranking.
-      if (tier === "uncategorized" && sort) {
+      if (tier === "uncategorized" && sort?.key === "rank") {
+        // Rank 1 is best, so "desc" (best first) is ascending rank. Unranked
+        // teams go last either way.
+        rows.sort((a, b) => compareRanks(
+          ranks.byTeam.get(a.teamNumber), ranks.byTeam.get(b.teamNumber),
+          sort.direction === "desc"));
+      } else if (tier === "uncategorized" && sort) {
+        const sortKey = sort.key;
         const value = (r: Row) => {
           const s = statFor(r.teamId);
           if (!s) return -1;
-          switch (sort.key) {
+          switch (sortKey) {
+            case "rank": return -1; // sorted in the branch above
             case "totalFuel": return s.avgTotalFuel;
             case "climbPoints": return s.avgClimbPoints;
             case "passing": return s.avgPassing;
@@ -204,7 +215,7 @@ export default function PickListBoardPage() {
       }
     }
     return map;
-  }, [entries, sort, stats, search, picked, showPicked]);
+  }, [entries, sort, stats, search, picked, showPicked, ranks]);
 
   const searching = search.trim() !== "";
   const selectedRow = ((entries ?? []) as Row[]).find(
@@ -362,6 +373,7 @@ export default function PickListBoardPage() {
                       nickname={row.nickname}
                       pitScouted={pitByTeam.get(row.teamId) ?? false}
                       stats={statFor(row.teamId)}
+                      rank={ranks.byTeam.get(row.teamNumber) ?? null}
                       draggable={
                         list.canEdit && (!searching || row.tier === "uncategorized")
                       }

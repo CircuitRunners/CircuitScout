@@ -10,7 +10,7 @@ import type { Tier } from "@/lib/types";
  * NOT allowed: anything persisted or owned by Convex. Never mirror a query
  * result into this store — subscribe with useQuery instead.
  */
-export type SortKey = "totalFuel" | "climbPoints" | "passing" | "defense" | "driver";
+export type SortKey = "rank" | "totalFuel" | "climbPoints" | "passing" | "defense" | "driver";
 export type SortDirection = "asc" | "desc";
 
 type UIState = {

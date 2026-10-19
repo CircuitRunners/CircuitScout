@@ -1,6 +1,5 @@
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -17,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { SCOUT_WEIGHTS } from "@/lib/scoring";
+import { LoadingWheel } from "@/components/loading-wheel";
 
 const TIER_LABEL = {
   lead: "Strategy lead",
@@ -332,7 +332,7 @@ export default function ProfilePage() {
 
           <Button className="h-12 w-full" disabled={!ready || !changed || busy}
             onClick={() => void save()}>
-            {busy ? <LoaderCircle className="size-4 animate-spin" /> : null}
+            {busy ? <LoadingWheel className="size-4" /> : null}
             {changed ? "Save changes" : "No changes"}
           </Button>
         </CardContent>

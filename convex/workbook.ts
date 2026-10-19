@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { spareText } from "./lib/spares";
+import { batteryText, spareText } from "./lib/spares";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { activeEventForTeam, currentProfile, requireTeamAdmin } from "./lib/guards";
@@ -163,13 +163,14 @@ export const forTeam = query({
     const event = await activeEventForTeam(ctx, teamNumber);
     if (!event) return null;
 
-    const [reports, matches, teams, pit, epaRows, xpRows, profiles] = await Promise.all([
+    const [reports, matches, teams, pit, epaRows, xpRows, rankRows, profiles] = await Promise.all([
       ctx.db.query("matchReports").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("matches").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("teams").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("pitReports").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("teamEpa").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("teamXp").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
+      ctx.db.query("teamRanks").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ctx.db.query("profiles").collect(),
     ]);
 
@@ -178,6 +179,7 @@ export const forTeam = query({
     const nameByUser = new Map(profiles.map((p) => [p.userId, p.displayName]));
     const epaByNumber = new Map(epaRows.map((r) => [r.teamNumber, r]));
     const xpByNumber = new Map(xpRows.map((r) => [r.teamNumber, r]));
+    const rankByNumber = new Map(rankRows.map((r) => [r.teamNumber, r.rank]));
 
     const allianceOf = (report: Doc<"matchReports">) => {
       const team = teamById.get(report.teamId);
@@ -220,6 +222,7 @@ export const forTeam = query({
               ? (p.hopper.expandedCapacity ?? "")
               : "",
           spares: (p.spares ?? []).map(spareText).join("; "),
+          batteries: (p.batteries ?? []).map(batteryText).join("; "),
           climbLow: p.climb.low,
           climbMid: p.climb.mid,
           climbHigh: p.climb.high,
@@ -303,6 +306,7 @@ export const forTeam = query({
           country: t.country,
           tbaTeamKey: t.tbaTeamKey,
           pitScouted: pitScouted.has(t._id),
+          tbaRank: rankByNumber.get(t.number) ?? "",
           reportCount: s.reportCount,
           avgAutoFuel: s.avgAutoFuel,
           avgTeleopFuel: s.avgTeleopFuel,

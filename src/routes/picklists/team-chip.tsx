@@ -6,6 +6,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { RankBadge } from "@/components/team-rank";
 
 export type ChipStats = {
   reportCount: number;
@@ -24,6 +25,7 @@ export function TeamChip({
   nickname,
   pitScouted,
   stats,
+  rank,
   draggable,
   note,
   needsNote,
@@ -36,6 +38,8 @@ export function TeamChip({
   nickname: string;
   pitScouted: boolean;
   stats: ChipStats | null;
+  /** TBA rank, or null when unranked. */
+  rank?: number | null;
   draggable: boolean;
   note: string;
   needsNote: boolean;
@@ -85,6 +89,7 @@ export function TeamChip({
             <Check className="size-3.5" />
           </Button>
         ) : null}
+        <RankBadge rank={rank} className="text-[10px]" />
         <Badge variant={pitScouted ? "secondary" : "outline"} className="shrink-0 text-[10px]">
           {pitScouted ? "Pit" : "No pit"}
         </Badge>

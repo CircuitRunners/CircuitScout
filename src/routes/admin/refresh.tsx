@@ -1,10 +1,11 @@
-import { LoaderCircle, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
   RefreshContext, useAdminRefresh, type Refresher, type Registry,
 } from "./refresh-context";
+import { LoadingWheel } from "@/components/loading-wheel";
 
 /**
  * Every Refresh button on the admin page registers here, which is what lets
@@ -46,7 +47,7 @@ export function RefreshButton({
     <div className="flex flex-col items-end gap-1">
       <Button variant="outline" size="sm" disabled={loading} onClick={() => void onRefresh()}>
         {loading ? (
-          <LoaderCircle className="size-3.5 animate-spin" />
+          <LoadingWheel className="size-3.5" />
         ) : (
           <RefreshCw className="size-3.5" />
         )}
@@ -70,7 +71,7 @@ export function RefreshAdminPageButton() {
         void refresh().finally(() => setBusy(false));
       }}>
       {busy ? (
-        <LoaderCircle className="size-3.5 animate-spin" />
+        <LoadingWheel className="size-3.5" />
       ) : (
         <RefreshCw className="size-3.5" />
       )}

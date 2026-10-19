@@ -1,5 +1,5 @@
 import { useConvex } from "convex/react";
-import { ChevronDown, LoaderCircle, RefreshCw } from "lucide-react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../../../convex/_generated/api";
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useRegisterRefresh } from "./refresh-context";
+import { LoadingWheel } from "@/components/loading-wheel";
 
 type EventUsage = {
   eventId: Id<"events">;
@@ -90,7 +91,7 @@ export function UsageByTeamCard({ myTeamNumber }: { myTeamNumber: number | undef
         <CardAction className="flex flex-col items-end gap-1">
           <Button variant="outline" size="sm" disabled={loading} onClick={() => void refresh()}>
             {loading ? (
-              <LoaderCircle className="size-3.5 animate-spin" />
+              <LoadingWheel className="size-3.5" />
             ) : (
               <RefreshCw className="size-3.5" />
             )}

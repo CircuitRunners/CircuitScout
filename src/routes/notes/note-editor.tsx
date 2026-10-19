@@ -1,10 +1,10 @@
-import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { LoadingWheel } from "@/components/loading-wheel";
 
 /**
  * The whole notes form: one box, one button. Mount it with a key once the
@@ -44,7 +44,7 @@ export function NoteEditor({
               }))
             .finally(() => setSaving(false));
         }}>
-        {saving ? <LoaderCircle className="size-4 animate-spin" /> : null}
+        {saving ? <LoadingWheel className="size-4" /> : null}
         {dirty || saved === "" ? "Save notes" : "Saved"}
       </Button>
     </div>

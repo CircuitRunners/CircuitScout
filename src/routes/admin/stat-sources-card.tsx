@@ -1,5 +1,4 @@
 import { useAction, useMutation, useQuery } from "convex/react";
-import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -9,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
+import { LoadingWheel } from "@/components/loading-wheel";
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -93,8 +93,8 @@ export function StatSourcesCard({ isFullAdmin }: { isFullAdmin: boolean }) {
       <CardHeader>
         <CardTitle>Statbotics, match13 &amp; TBA</CardTitle>
         <CardDescription>
-          EPA, xP and match scores refresh together every two hours, and only
-          while a team has an event active. Pull them now if you want the
+          EPA, xP, match scores and TBA rankings refresh together every two
+          hours, and only while a team has an event active. Pull them now if you want the
           numbers current before alliance selection.
         </CardDescription>
       </CardHeader>
@@ -107,7 +107,7 @@ export function StatSourcesCard({ isFullAdmin }: { isFullAdmin: boolean }) {
                 .then((r) => {
                   const summary =
                     `EPA for ${r.epaTeams} teams · xP for ${r.xpTeams} teams · ` +
-                    `${r.matchesUpdated} matches updated.`;
+                    `${r.matchesUpdated} matches updated · ${r.rankedTeams} teams ranked.`;
                   if (r.problems.length > 0) {
                     toast.warning("Refreshed, with problems", {
                       description: `${summary} ${r.problems.join(" · ")}`,
@@ -120,7 +120,7 @@ export function StatSourcesCard({ isFullAdmin }: { isFullAdmin: boolean }) {
                   toast.error("Refresh failed", { description: errorText(error) }))
                 .finally(() => setRefreshing(false));
             }}>
-            {refreshing ? <LoaderCircle className="size-4 animate-spin" /> : null}
+            {refreshing ? <LoadingWheel className="size-4" /> : null}
             Refresh Statbotics/match13/TBA
           </Button>
           <span className="text-muted-foreground text-xs">{status}</span>

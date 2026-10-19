@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft, Camera, LoaderCircle } from "lucide-react";
+import { ArrowLeft, Camera, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
@@ -17,7 +17,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { SPARE_PARTS, type Spare, type SparePart } from "@/lib/spares";
+import { MenuSelect } from "@/components/menu-select";
+import {
+  BATTERY_TYPES, SPARE_PARTS,
+  type Battery, type BatteryType, type Spare, type SparePart,
+} from "@/lib/spares";
+import { LoadingWheel } from "@/components/loading-wheel";
 
 const DRIVETRAINS = ["Swerve", "Tank / WCD", "Mecanum", "Other"] as const;
 
@@ -57,6 +62,7 @@ type FormState = {
   robotNotes: string;
   otherNotes: string;
   spares: Record<SparePart, SpareRow>;
+  batteries: BatteryRow[];
 };
 
 type SpareRow = { on: boolean; quantity: string; specify: string };
@@ -71,16 +77,56 @@ const positiveDigits = (text: string) => text.replace(/\D/g, "").replace(/^0+/, 
 /** What a ticked spare is missing, or null when it is complete or unticked. */
 function spareProblem(row: SpareRow): string | null {
   if (!row.on) return null;
+  return row.specify.trim() === "" ? "Say what exactly." : null;
+}
+
+type BatteryRow = {
+  /** Stable React key; never saved. */
+  key: number;
+  type: BatteryType | "";
+  otherType: string;
+  quantity: string;
+  condition: string;
+};
+
+let nextBatteryKey = 1;
+const blankBattery = (): BatteryRow =>
+  ({ key: nextBatteryKey++, type: "", otherType: "", quantity: "", condition: "" });
+
+/** A row added by mistake and never touched is dropped on save, not an error. */
+const batteryEmpty = (row: BatteryRow) =>
+  row.type === "" && row.quantity === "" && row.condition.trim() === "";
+
+/** What a battery row is missing, or null when it is complete or empty. */
+function batteryProblem(row: BatteryRow): string | null {
+  if (batteryEmpty(row)) return null;
   const missing: string[] = [];
-  if (row.quantity === "") missing.push("how many");
-  if (row.specify.trim() === "") missing.push("what exactly");
-  return missing.length > 0 ? `Say ${missing.join(" and ")}.` : null;
+  if (row.type === "") missing.push("pick a type");
+  if (row.type === "other" && row.otherType.trim() === "") missing.push("say which brand");
+  if (row.quantity === "") missing.push("say how many");
+  if (missing.length === 0) return null;
+  const text = missing.join(" and ");
+  return `${text[0]!.toUpperCase()}${text.slice(1)}.`;
+}
+
+function batteriesFromReport(batteries: Battery[] | undefined): BatteryRow[] {
+  return (batteries ?? []).map((b) => ({
+    key: nextBatteryKey++,
+    type: b.type,
+    otherType: b.otherType ?? "",
+    quantity: b.quantity === undefined ? "" : String(b.quantity),
+    condition: b.condition,
+  }));
 }
 
 function sparesFromReport(spares: Spare[] | undefined): Record<SparePart, SpareRow> {
   const rows = { ...BLANK_SPARES };
   for (const s of spares ?? []) {
-    rows[s.part] = { on: true, quantity: String(s.quantity), specify: s.specify };
+    rows[s.part] = {
+      on: true,
+      quantity: s.quantity === undefined ? "" : String(s.quantity),
+      specify: s.specify,
+    };
   }
   return rows;
 }
@@ -93,6 +139,7 @@ const BLANK: FormState = {
   drivetrainBase: "", drivetrainDetail: "", underTrench: false, overBump: false,
   robotNotes: "", otherNotes: "",
   spares: BLANK_SPARES,
+  batteries: [],
 };
 
 export default function PitFormPage() {
@@ -113,7 +160,7 @@ export default function PitFormPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   // Problems show once someone tries to save, not while they are still typing.
-  const [showSpareErrors, setShowSpareErrors] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   // Hydrate once. Re-hydrating on every query update would stamp on edits in
@@ -135,6 +182,7 @@ export default function PitFormPage() {
         hopperCapacity: report.hopper?.capacity?.toString() ?? "",
         hopperExpanded: report.hopper?.expandedCapacity?.toString() ?? "",
         spares: sparesFromReport(report.spares),
+        batteries: batteriesFromReport(report.batteries),
       });
     }
     setLoaded(true);
@@ -146,6 +194,12 @@ export default function PitFormPage() {
   const setSpare = (part: SparePart, patch: Partial<SpareRow>) =>
     setForm((f) => ({ ...f, spares: { ...f.spares, [part]: { ...f.spares[part], ...patch } } }));
 
+  const setBattery = (key: number, patch: Partial<BatteryRow>) =>
+    setForm((f) => ({
+      ...f,
+      batteries: f.batteries.map((b) => (b.key === key ? { ...b, ...patch } : b)),
+    }));
+
   const pickPhoto = async (file: File | undefined) => {
     if (!file) return;
     const compressed = await compressImage(file);
@@ -155,11 +209,15 @@ export default function PitFormPage() {
 
   const save = async () => {
     if (!data) return;
-    if (SPARE_PARTS.some(({ part }) => spareProblem(form.spares[part]) !== null)) {
-      setShowSpareErrors(true);
-      toast.error("Fill in the ticked spares", {
-        description: "Each ticked part needs how many and what exactly.",
-      });
+    const badSpares = SPARE_PARTS.some(({ part }) => spareProblem(form.spares[part]) !== null);
+    const badBatteries = form.batteries.some((b) => batteryProblem(b) !== null);
+    if (badSpares || badBatteries) {
+      setShowErrors(true);
+      toast.error(
+        badSpares && badBatteries ? "Fill in the spares and batteries"
+          : badSpares ? "Fill in the ticked spares" : "Fill in the batteries",
+        { description: "The rows that need something are outlined in red." },
+      );
       return;
     }
     setSaving(true);
@@ -201,10 +259,21 @@ export default function PitFormPage() {
         otherNotes: form.otherNotes,
         spares: SPARE_PARTS
           .filter(({ part }) => form.spares[part].on)
-          .map(({ part }) => ({
-            part,
-            quantity: Number.parseInt(form.spares[part].quantity, 10),
-            specify: form.spares[part].specify.trim(),
+          .map(({ part }) => {
+            const row = form.spares[part];
+            return {
+              part,
+              ...(row.quantity === "" ? {} : { quantity: Number.parseInt(row.quantity, 10) }),
+              specify: row.specify.trim(),
+            };
+          }),
+        batteries: form.batteries
+          .filter((b) => !batteryEmpty(b))
+          .map((b) => ({
+            type: b.type as BatteryType,
+            ...(b.type === "other" ? { otherType: b.otherType.trim() } : {}),
+            ...(b.quantity === "" ? {} : { quantity: Number.parseInt(b.quantity, 10) }),
+            condition: b.condition.trim(),
           })),
         photoId,
         hopper: {
@@ -392,14 +461,14 @@ export default function PitFormPage() {
         <CardHeader>
           <CardTitle>Spares</CardTitle>
           <CardDescription>
-            Spare parts the team has in the pit. Tick a part, then say how many
-            and what exactly.
+            Spare parts the team has in the pit. Tick a part and say what
+            exactly; Est. Qty is a rough count and can be left blank.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           {SPARE_PARTS.map(({ part, label }) => {
             const row = form.spares[part];
-            const problem = showSpareErrors ? spareProblem(row) : null;
+            const problem = showErrors ? spareProblem(row) : null;
             return (
               <div key={part}
                 className={[
@@ -416,9 +485,8 @@ export default function PitFormPage() {
                         : { on: false, quantity: "", specify: "" })} />
                   <span className="text-base">{label}</span>
                 </label>
-                <Input aria-label={`${label} quantity`} inputMode="numeric" pattern="[0-9]*"
-                  placeholder="Qty" disabled={!row.on} value={row.quantity}
-                  aria-invalid={problem !== null && row.quantity === ""}
+                <Input aria-label={`${label} estimated quantity`} inputMode="numeric" pattern="[0-9]*"
+                  placeholder="Est. Qty" disabled={!row.on} value={row.quantity}
                   onChange={(e) => setSpare(part, { quantity: positiveDigits(e.target.value) })} />
                 <Input aria-label={`${label} specifics`} placeholder="Specify"
                   disabled={!row.on} value={row.specify}
@@ -430,6 +498,68 @@ export default function PitFormPage() {
               </div>
             );
           })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Batteries</CardTitle>
+          <CardDescription>
+            One row per kind of battery the team brought. Type and Qty are required.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {form.batteries.map((row, i) => {
+            const n = i + 1;
+            const problem = showErrors ? batteryProblem(row) : null;
+            return (
+              <div key={row.key}
+                className={[
+                  "grid grid-cols-[4.5rem_minmax(0,1fr)_2rem] gap-2 rounded-lg border p-3",
+                  "sm:grid-cols-[minmax(0,1.3fr)_4.5rem_minmax(0,2fr)_2rem] sm:items-start",
+                  problem ? "border-destructive" : "",
+                ].join(" ")}>
+                <div className="col-span-3 grid gap-2 sm:col-span-1">
+                  {/* A themed menu, not the browser's own select, which ignores the
+                      app's theme; [color-scheme:dark] only half fixed it. */}
+                  <MenuSelect label={`Battery ${n} type`} value={row.type} placeholder="Type"
+                    options={BATTERY_TYPES.map((b) => ({ value: b.type, label: b.label }))}
+                    invalid={problem !== null && row.type === ""}
+                    className="h-8 w-full"
+                    onChange={(type) =>
+                      setBattery(row.key, { type, otherType: type === "other" ? row.otherType : "" })} />
+                  {row.type === "other" ? (
+                    <Input aria-label={`Battery ${n} brand`} placeholder="Which brand?"
+                      value={row.otherType} maxLength={50}
+                      aria-invalid={problem !== null && row.otherType.trim() === ""}
+                      onChange={(e) => setBattery(row.key, { otherType: e.target.value })} />
+                  ) : null}
+                </div>
+                <Input aria-label={`Battery ${n} quantity`} inputMode="numeric" pattern="[0-9]*"
+                  placeholder="Qty" value={row.quantity}
+                  aria-invalid={problem !== null && row.quantity === ""}
+                  onChange={(e) => setBattery(row.key, { quantity: positiveDigits(e.target.value) })} />
+                <Input aria-label={`Battery ${n} condition`} placeholder="Condition"
+                  value={row.condition} maxLength={200}
+                  onChange={(e) => setBattery(row.key, { condition: e.target.value })} />
+                <Button size="icon" variant="ghost" className="size-8"
+                  aria-label={`Remove battery ${n}`}
+                  onClick={() => setForm((f) => ({
+                    ...f, batteries: f.batteries.filter((b) => b.key !== row.key),
+                  }))}>
+                  <X className="size-4" />
+                </Button>
+                {problem ? (
+                  <p className="text-destructive col-span-3 text-xs sm:col-span-4">{problem}</p>
+                ) : null}
+              </div>
+            );
+          })}
+          <button type="button"
+            onClick={() => setForm((f) => ({ ...f, batteries: [...f.batteries, blankBattery()] }))}
+            className="text-muted-foreground hover:bg-accent/50 hover:text-foreground flex min-h-12 w-full items-center gap-2 rounded-lg border border-dashed p-3 text-left text-base transition-colors">
+            <Plus className="size-4" /> Add battery type
+          </button>
         </CardContent>
       </Card>
 
@@ -477,7 +607,7 @@ export default function PitFormPage() {
 
       <Button className="h-14 w-full text-base" disabled={saving}
         onClick={() => void save()}>
-        {saving ? <LoaderCircle className="size-4 animate-spin" /> : null}
+        {saving ? <LoadingWheel className="size-4" /> : null}
         {data.report ? "Update report" : "Submit report"}
       </Button>
     </PageShell>

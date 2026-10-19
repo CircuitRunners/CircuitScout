@@ -1,7 +1,7 @@
 /// <reference types="node" />
 
 import { v } from "convex/values";
-import { action } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
@@ -210,5 +210,28 @@ export const refreshScores = action({
         winningAlliance: m.winning_alliance ?? "",
       })),
     });
+  },
+});
+
+type TbaRankings = {
+  rankings?: { rank: number; team_key: string }[] | null;
+} | null;
+
+/**
+ * Qualification rankings for one event. Internal: only refresh.now (the
+ * Admin button, which checks the caller first) and the two-hour cron reach
+ * it. Before quals start TBA has no rankings, which stores none.
+ */
+export const refreshRanks = internalAction({
+  args: { eventId: v.id("events"), eventKey: v.string() },
+  handler: async (ctx, args): Promise<{ ranked: number }> => {
+    const body = await tbaFetch<TbaRankings>(`/event/${args.eventKey}/rankings`);
+    const rows = (body?.rankings ?? []).flatMap((r) => {
+      const teamNumber = teamNumberFromKey(r.team_key);
+      return Number.isInteger(teamNumber) && Number.isInteger(r.rank) && r.rank > 0
+        ? [{ teamNumber, rank: r.rank }]
+        : [];
+    });
+    return await ctx.runMutation(internal.ranks.store, { eventId: args.eventId, rows });
   },
 });

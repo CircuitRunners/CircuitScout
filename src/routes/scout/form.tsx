@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { AlertTriangle, ArrowLeft, ArrowRight, LoaderCircle, Play } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ import {
 } from "@/lib/scoring";
 import type { AutoStep, ClimbLevel, StartPosition } from "@/lib/types";
 import { readSteps } from "@/lib/types";
+import { LoadingWheel } from "@/components/loading-wheel";
 
 const CLIMB_OPTIONS: ReadonlyArray<{ value: ClimbLevel; label: string }> = [
   { value: "none", label: "No climb" },
@@ -574,7 +575,7 @@ export default function MatchFormPage() {
         }
         onClick={() => void save()}
       >
-        {saving ? <LoaderCircle className="size-4 animate-spin" /> : null}
+        {saving ? <LoadingWheel className="size-4" /> : null}
         {editId ? "Save changes" : "Submit report"}
       </Button>
     </PageShell>

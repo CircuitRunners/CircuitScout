@@ -1,5 +1,5 @@
 import { useConvex, useQuery } from "convex/react";
-import { Download, LoaderCircle } from "lucide-react";
+import { Download } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from "@/components/ui/card";
+import { LoadingWheel } from "@/components/loading-wheel";
 
 /**
  * Pit notes and match notes as a two-sheet workbook. No cooldown: notes are
@@ -59,7 +60,7 @@ export function NotesExport() {
       </CardHeader>
       <CardContent>
         <Button variant="outline" disabled={busy} onClick={() => void download()}>
-          {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />}
+          {busy ? <LoadingWheel className="size-4" /> : <Download className="size-4" />}
           Download .xlsx
         </Button>
       </CardContent>

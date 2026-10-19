@@ -1,5 +1,4 @@
 import { useConvexAuth, useAction, useQuery } from "convex/react";
-import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { toast } from "sonner";
@@ -11,11 +10,12 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingWheel } from "@/components/loading-wheel";
 
 function FullPageSpinner() {
   return (
     <div className="flex min-h-svh items-center justify-center">
-      <LoaderCircle className="text-muted-foreground size-5 animate-spin" />
+      <LoadingWheel className="size-12" />
     </div>
   );
 }
@@ -84,7 +84,7 @@ function ProfileSetup({ existingName }: { existingName: string | null }) {
           </div>
           <Button className="h-12 w-full" disabled={!ready || busy}
             onClick={() => void save()}>
-            {busy ? <LoaderCircle className="size-4 animate-spin" /> : null}
+            {busy ? <LoadingWheel className="size-4" /> : null}
             Continue
           </Button>
           {firstName.trim() && /^[A-Za-z]$/.test(lastInitial.trim()) ? (

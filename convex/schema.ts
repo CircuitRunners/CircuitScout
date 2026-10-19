@@ -188,6 +188,17 @@ export default defineSchema({
    * than on teams, so a refresh never touches imported TBA data and a failed
    * fetch leaves the roster intact.
    */
+  /**
+   * TBA qualification rank for one team at one event. Refreshed with EPA,
+   * xP and scores (cron and Admin button); a row is only rewritten when the
+   * rank changes.
+   */
+  teamRanks: defineTable({
+    eventId: v.id("events"),
+    teamNumber: v.number(),
+    rank: v.number(),
+  }).index("by_event", ["eventId"]),
+
   teamEpa: defineTable({
     eventId: v.id("events"),
     teamNumber: v.number(),
@@ -313,8 +324,19 @@ export default defineSchema({
         v.literal("intake"), v.literal("indexer"), v.literal("shooter"),
         v.literal("swerve"), v.literal("other"),
       ),
-      quantity: v.number(),
+      /** An estimate, and optional. Older reports always have one. */
+      quantity: v.optional(v.number()),
       specify: v.string(),
+    }))),
+    /** Batteries the team brought, one row per kind. Optional: reports
+     *  written before the batteries section existed have none. */
+    batteries: v.optional(v.array(v.object({
+      type: v.union(
+        v.literal("mk"), v.literal("energizer"), v.literal("duracell"), v.literal("other"),
+      ),
+      otherType: v.optional(v.string()),
+      quantity: v.optional(v.number()),
+      condition: v.string(),
     }))),
   })
     .index("by_event", ["eventId"])

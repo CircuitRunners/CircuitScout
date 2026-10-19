@@ -5,6 +5,8 @@ import { Link, useParams } from "react-router";
 import { api } from "../../../convex/_generated/api";
 import { StatLinks } from "@/components/stat-links";
 import { useRatings } from "@/lib/stat-site";
+import { useRanks } from "@/lib/ranks";
+import { RankBadge } from "@/components/team-rank";
 import { PageShell } from "@/routes/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +21,7 @@ type Robot = {
 };
 
 function Side({ label, robots, red }: { label: string; robots: Robot[]; red: boolean }) {
+  const ranks = useRanks();
   return (
     <div className="space-y-3">
       <h3 className={red ? "font-medium text-red-600 dark:text-red-400" : "font-medium text-blue-600 dark:text-blue-400"}>
@@ -32,6 +35,7 @@ function Side({ label, robots, red }: { label: string; robots: Robot[]; red: boo
                 {robot.teamNumber}
               </Link>
               <span className="text-muted-foreground text-sm font-normal">{robot.nickname}</span>
+              <RankBadge rank={ranks.byTeam.get(robot.teamNumber)} className="ml-auto" />
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">

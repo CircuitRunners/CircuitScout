@@ -38,6 +38,7 @@ import type * as pickLists from "../pickLists.js";
 import type * as picked from "../picked.js";
 import type * as pit from "../pit.js";
 import type * as profiles from "../profiles.js";
+import type * as ranks from "../ranks.js";
 import type * as refresh from "../refresh.js";
 import type * as statSite from "../statSite.js";
 import type * as statbotics from "../statbotics.js";
@@ -83,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   picked: typeof picked;
   pit: typeof pit;
   profiles: typeof profiles;
+  ranks: typeof ranks;
   refresh: typeof refresh;
   statSite: typeof statSite;
   statbotics: typeof statbotics;

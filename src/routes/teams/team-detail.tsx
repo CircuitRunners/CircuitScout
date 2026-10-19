@@ -1,6 +1,6 @@
 import { useQuery } from "convex/react";
 import type { ReactNode } from "react";
-import { AlertTriangle, Cog, Package, Pencil, Wrench } from "lucide-react";
+import { AlertTriangle, BatteryFull, Cog, Package, Pencil, Wrench } from "lucide-react";
 
 import { api } from "../../../convex/_generated/api";
 import { AttentionCard, type AttentionRow } from "@/components/attention-items";
@@ -9,9 +9,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { TIER_LABELS, type Tier } from "@/lib/types";
-import { spareText } from "@/lib/spares";
+import { batteryText, spareText } from "@/lib/spares";
 import { StatLinks } from "@/components/stat-links";
 import { useRatings } from "@/lib/stat-site";
+import { useRanks } from "@/lib/ranks";
+import { RankCard } from "@/components/team-rank";
 
 const ROOF_LABELS = {
   solid: "Solid roof",
@@ -71,6 +73,8 @@ export function TeamDetail({
   // EPA or xP, whichever site this team has chosen.
   const ratings = useRatings();
   const rating = teamNumber === null ? null : (ratings.byTeam.get(teamNumber) ?? null);
+  const ranks = useRanks();
+  const rank = teamNumber === null ? null : (ranks.byTeam.get(teamNumber) ?? null);
   const event = useQuery(api.events.active);
   const attention = useQuery(api.attention.forEvent);
   const mine = (attention ?? []).filter((row) => row.teamNumber === teamNumber);
@@ -116,17 +120,22 @@ export function TeamDetail({
             {/* Report count sits next to the averages deliberately: an average
                 over two matches and one over eleven are not comparable, and a
                 bare number invites treating them as if they were. */}
-              {rating ? (
-                <div className="rounded-lg border p-3">
-                  <p className="text-muted-foreground text-xs">{ratings.metric}</p>
-                  <p className="text-xl font-semibold tabular-nums">
-                    {rating.total.toFixed(1)}
-                  </p>
-                  <p className="text-muted-foreground text-[10px]">
-                    {ratings.siteName}, not your scouting
-                  </p>
-                </div>
-              ) : null}
+            {rating || rank !== null ? (
+              <div className="grid grid-cols-2 gap-2">
+                {rating ? (
+                  <div className="rounded-lg border p-3">
+                    <p className="text-muted-foreground text-xs">{ratings.metric}</p>
+                    <p className="text-xl font-semibold tabular-nums">
+                      {rating.total.toFixed(1)}
+                    </p>
+                    <p className="text-muted-foreground text-[10px]">
+                      {ratings.siteName}, not your scouting
+                    </p>
+                  </div>
+                ) : null}
+                <RankCard rank={rank} total={ranks.total} />
+              </div>
+            ) : null}
             <div className="flex items-baseline gap-2">
               <h3 className="font-medium">Averages</h3>
               <span className="text-muted-foreground text-xs">
@@ -223,6 +232,12 @@ export function TeamDetail({
                   <p className="text-sm">
                     <Cog className="mr-1 inline size-3" />
                     Spares: {(data.pitReport.spares ?? []).map(spareText).join(" · ")}
+                  </p>
+                ) : null}
+                {(data.pitReport.batteries ?? []).length > 0 ? (
+                  <p className="text-sm">
+                    <BatteryFull className="mr-1 inline size-3" />
+                    Batteries: {(data.pitReport.batteries ?? []).map(batteryText).join(" · ")}
                   </p>
                 ) : null}
                 <p className="text-sm">

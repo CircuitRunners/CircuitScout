@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { AttentionBadge } from "@/components/attention-items";
+import { RankBadge } from "@/components/team-rank";
 import { TIER_LABELS, type Tier } from "@/lib/types";
 
 /**
@@ -14,6 +15,7 @@ export function TeamCard({
   reportCount,
   tier,
   attention = 0,
+  rank,
   onClick,
 }: {
   number: number;
@@ -22,6 +24,8 @@ export function TeamCard({
   reportCount: number;
   tier?: Tier;
   attention?: number;
+  /** TBA rank; shown when the caller passes one. */
+  rank?: number | null;
   onClick?: () => void;
 }) {
   const Wrapper = onClick ? "button" : "div";
@@ -34,6 +38,7 @@ export function TeamCard({
       <span className="min-w-0 flex-1 truncate text-sm">{nickname}</span>
       <div className="flex shrink-0 items-center gap-1.5">
         <AttentionBadge count={attention} />
+        <RankBadge rank={rank} />
         {tier && tier !== "uncategorized" ? (
           <Badge variant="secondary">{TIER_LABELS[tier]}</Badge>
         ) : null}

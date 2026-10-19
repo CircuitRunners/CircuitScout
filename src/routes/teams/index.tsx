@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
+import { compareRanks, useRanks } from "@/lib/ranks";
 import { PageShell } from "@/routes/page-shell";
 import { TeamDetail } from "./team-detail";
 import { TeamCard } from "@/components/scouting/team-card";
@@ -24,11 +25,12 @@ const FILTERS: ReadonlyArray<{ value: Filter; label: string }> = [
   { value: "no-matches", label: "No match data" },
 ];
 
-type TeamSort = "number" | "totalFuel" | "climbPoints" | "passing" | "defense" | "driver";
+type TeamSort = "number" | "rank" | "totalFuel" | "climbPoints" | "passing" | "defense" | "driver";
 
-/** Team number ascending; every stat highest first. */
+/** Team number and rank ascending (unranked last); every stat highest first. */
 const TEAM_SORTS: ReadonlyArray<{ value: TeamSort; label: string }> = [
   { value: "number", label: "Team number" },
+  { value: "rank", label: "Rank (TBA)" },
   { value: "totalFuel", label: "Fuel" },
   { value: "climbPoints", label: "Climb" },
   { value: "passing", label: "Passing" },
@@ -45,8 +47,9 @@ export default function TeamsPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<TeamSort>("number");
-  // Only subscribed while a stat sort is chosen; team-number order needs none.
-  const stats = useQuery(api.stats.forEvent, sort === "number" ? "skip" : {});
+  // Only subscribed while a stat sort is chosen; number and rank need none.
+  const stats = useQuery(api.stats.forEvent, sort === "number" || sort === "rank" ? "skip" : {});
+  const ranks = useRanks();
 
   const openParam = searchParams.get("team");
   const openTeam = openParam === null ? null : Number.parseInt(openParam, 10);
@@ -83,6 +86,10 @@ export default function TeamsPage() {
   // Until stats arrive the list stays in team-number order rather than
   // flashing an empty page.
   const sorted = useMemo(() => {
+    if (sort === "rank") {
+      return [...shown].sort((a, b) =>
+        compareRanks(ranks.byTeam.get(a.number), ranks.byTeam.get(b.number)) || a.number - b.number);
+    }
     if (sort === "number" || !stats) return shown;
     const value = (teamId: string): number => {
       const s = stats[teamId];
@@ -96,7 +103,7 @@ export default function TeamsPage() {
       }
     };
     return [...shown].sort((a, b) => value(b._id) - value(a._id) || a.number - b.number);
-  }, [shown, sort, stats]);
+  }, [shown, sort, stats, ranks]);
 
   const sortLabel = TEAM_SORTS.find((s) => s.value === sort)?.label ?? "";
 
@@ -207,6 +214,7 @@ export default function TeamsPage() {
                 reportCount={team.reportCount}
                 tier={team.tier as Tier}
                 attention={attentionByTeam.get(team.number) ?? 0}
+                rank={ranks.byTeam.get(team.number) ?? null}
                 onClick={() => open(team.number)}
               />
             </div>

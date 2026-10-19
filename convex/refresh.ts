@@ -16,6 +16,7 @@ export const now = action({
     epaTeams: number;
     xpTeams: number;
     matchesUpdated: number;
+    rankedTeams: number;
     problems: string[];
   }> => {
     await ctx.runQuery(internal.statbotics.requireAdminCheck, {});
@@ -28,6 +29,7 @@ export const now = action({
     let epaTeams = 0;
     let xpTeams = 0;
     let matchesUpdated = 0;
+    let rankedTeams = 0;
     const problems: string[] = [];
 
     try {
@@ -56,10 +58,21 @@ export const now = action({
       problems.push(message(error));
     }
 
-    if (epaTeams === 0 && xpTeams === 0 && matchesUpdated === 0 && problems.length > 0) {
+    try {
+      const result = await ctx.runAction(internal.tba.refreshRanks, {
+        eventId: event.eventId as Id<"events">,
+        eventKey: event.eventKey,
+      });
+      rankedTeams = result.ranked;
+    } catch (error) {
+      problems.push(message(error));
+    }
+
+    if (epaTeams === 0 && xpTeams === 0 && matchesUpdated === 0 && rankedTeams === 0
+      && problems.length > 0) {
       throw new Error(problems.join(" · "));
     }
-    return { epaTeams, xpTeams, matchesUpdated, problems };
+    return { epaTeams, xpTeams, matchesUpdated, rankedTeams, problems };
   },
 });
 
@@ -86,6 +99,14 @@ export const scheduled = internalAction({
         });
       } catch {
         // Nor must match13 having nothing for it yet.
+      }
+      try {
+        await ctx.runAction(internal.tba.refreshRanks, {
+          eventId: event.eventId as Id<"events">,
+          eventKey: event.eventKey,
+        });
+      } catch {
+        // Nor TBA having no rankings before quals start.
       }
     }
     const epa = await ctx.runAction(internal.statbotics.refreshAllScheduled, {});
