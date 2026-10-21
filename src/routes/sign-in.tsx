@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,20 @@ export default function SignInPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+          {flow === "signIn" ? (
+            <div className="flex justify-end">
+              <Link
+                to={
+                  email
+                    ? `/forgot-password?email=${encodeURIComponent(email)}`
+                    : "/forgot-password"
+                }
+                className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
+          ) : null}
         </div>
         <Button
           className="w-full"

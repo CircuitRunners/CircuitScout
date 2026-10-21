@@ -11,6 +11,8 @@ import ArchiveEventPage from "./archive/event";
 import ProfilePage from "./profile";
 import NotFoundPage from "./not-found";
 import SignInPage from "./sign-in";
+import ForgotPasswordPage from "./forgot-password";
+import ResetPasswordPage from "./reset-password";
 import AdminPage from "./admin/index";
 import AdminMergePage from "./admin/merge";
 
@@ -21,7 +23,11 @@ export const router = createBrowserRouter([
     children: [
       {
         element: <AuthLayout />,
-        children: [{ path: "sign-in", element: <SignInPage /> }],
+        children: [
+          { path: "sign-in", element: <SignInPage /> },
+          { path: "forgot-password", element: <ForgotPasswordPage /> },
+          { path: "reset-password", element: <ResetPasswordPage /> },
+        ],
       },
       {
         element: <RequireAuth />,

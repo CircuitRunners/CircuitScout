@@ -4,6 +4,7 @@ import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials"
 import { modifyAccountCredentials, retrieveAccount } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
+import { PasswordResetEmail } from "./passwordResetEmail";
 
 /**
  * Changing a password is not part of the Password provider's flows, and the
@@ -80,5 +81,5 @@ const AdminPasswordReset = ConvexCredentials<DataModel>({
 });
 
 export const { auth, signIn, signOut, store } = convexAuth({
-  providers: [Password, PasswordChange, AdminPasswordReset],
+  providers: [Password<DataModel>({ reset: PasswordResetEmail }), PasswordChange, AdminPasswordReset],
 });
