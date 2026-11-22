@@ -37,6 +37,7 @@ export default function DashboardPage() {
 
   const total = teams?.length ?? 0;
   const pitDone = teams?.filter((t) => t.pitScouted).length ?? 0;
+  const pitPartial = teams?.filter((t) => t.pitStatus === "partial").length ?? 0;
   const reports = teams?.reduce((sum, t) => sum + t.reportCount, 0) ?? 0;
   const noData = teams?.filter((t) => t.reportCount === 0).length ?? 0;
 
@@ -138,7 +139,9 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Pit scouted" value={`${pitDone}/${total}`}
-          hint={total - pitDone > 0 ? `${total - pitDone} still to do` : "Complete"} />
+          hint={total - pitDone > 0
+            ? `${total - pitDone} still to do${pitPartial > 0 ? ` (${pitPartial} partial)` : ""}`
+            : "Complete"} />
         <Metric label="Match reports" value={String(reports)} />
         <Metric label="Coverage" value={`${coverage}%`}
           hint={`${covered} of ${totalSlots} robot-matches`} />

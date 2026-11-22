@@ -19,10 +19,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MenuSelect } from "@/components/menu-select";
 import {
-  BATTERY_TYPES, SPARE_PARTS,
-  type Battery, type BatteryType, type Spare, type SparePart,
+  BATTERY_TYPES, FIXED_SPARE_PARTS, MAX_OTHER_SPARES,
+  type Battery, type BatteryType, type FixedSparePart, type Spare,
 } from "@/lib/spares";
 import { LoadingWheel } from "@/components/loading-wheel";
+import { pitIsBlank, pitMissing, pitStatus } from "@/lib/pit-status";
 
 const DRIVETRAINS = ["Swerve", "Tank / WCD", "Mecanum", "Other"] as const;
 
@@ -39,6 +40,19 @@ const roofExpands = (roof: HopperRoof | "") => roof === "expanding" || roof === 
 /** Digits only, three at most: a phone keyboard can still slip in a "." or "-". */
 const digitsOnly = (text: string) => text.replace(/\D/g, "").slice(0, 3);
 const toCount = (text: string) => (text === "" ? null : Number.parseInt(text, 10));
+
+/** Pounds: three digits and one decimal place at most, e.g. "112.5". */
+function weightDigits(text: string): string {
+  const match = /^(\d{0,3})(\.\d?)?/.exec(text.replace(/[^\d.]/g, ""));
+  return match ? `${match[1] ?? ""}${match[2] ?? ""}` : "";
+}
+
+/** What is wrong with the weight, or null when it is fine or blank. */
+function weightProblem(text: string): string | null {
+  if (text === "") return null;
+  const pounds = Number.parseFloat(text);
+  return pounds >= 10 && pounds <= 200 ? null : "Enter a weight between 10 and 200 lbs.";
+}
 
 type FormState = {
   turret: boolean;
@@ -57,19 +71,30 @@ type FormState = {
   duringAuto: boolean;
   drivetrainBase: string;
   drivetrainDetail: string;
+  drivetrainGearing: string;
+  robotWeight: string;
   underTrench: boolean;
   overBump: boolean;
   robotNotes: string;
   otherNotes: string;
-  spares: Record<SparePart, SpareRow>;
+  spares: Record<FixedSparePart, SpareRow>;
+  otherSpares: OtherSpareRow[];
   batteries: BatteryRow[];
 };
 
 type SpareRow = { on: boolean; quantity: string; specify: string };
 
+/** An Other spare, added with the plus. */
+type OtherSpareRow = {
+  /** Stable React key; never saved. */
+  key: number;
+  quantity: string;
+  specify: string;
+};
+
 const BLANK_SPARES = Object.fromEntries(
-  SPARE_PARTS.map(({ part }) => [part, { on: false, quantity: "", specify: "" }]),
-) as Record<SparePart, SpareRow>;
+  FIXED_SPARE_PARTS.map(({ part }) => [part, { on: false, quantity: "", specify: "" }]),
+) as Record<FixedSparePart, SpareRow>;
 
 /** Digits only, no leading zeros: the box can only ever hold a positive whole number. */
 const positiveDigits = (text: string) => text.replace(/\D/g, "").replace(/^0+/, "").slice(0, 3);
@@ -80,22 +105,35 @@ function spareProblem(row: SpareRow): string | null {
   return row.specify.trim() === "" ? "Say what exactly." : null;
 }
 
+let nextOtherSpareKey = 1;
+const blankOtherSpare = (): OtherSpareRow =>
+  ({ key: nextOtherSpareKey++, quantity: "", specify: "" });
+
+/** An Other row added by mistake and never touched is dropped on save, not an error. */
+const otherSpareEmpty = (row: OtherSpareRow) =>
+  row.quantity === "" && row.specify.trim() === "";
+
+/** What an Other row is missing, or null when it is complete or empty. */
+function otherSpareProblem(row: OtherSpareRow): string | null {
+  if (otherSpareEmpty(row)) return null;
+  return row.specify.trim() === "" ? "Say what exactly." : null;
+}
+
 type BatteryRow = {
   /** Stable React key; never saved. */
   key: number;
   type: BatteryType | "";
   otherType: string;
+  /** How many are in good condition. */
   quantity: string;
-  condition: string;
 };
 
 let nextBatteryKey = 1;
 const blankBattery = (): BatteryRow =>
-  ({ key: nextBatteryKey++, type: "", otherType: "", quantity: "", condition: "" });
+  ({ key: nextBatteryKey++, type: "", otherType: "", quantity: "" });
 
 /** A row added by mistake and never touched is dropped on save, not an error. */
-const batteryEmpty = (row: BatteryRow) =>
-  row.type === "" && row.quantity === "" && row.condition.trim() === "";
+const batteryEmpty = (row: BatteryRow) => row.type === "" && row.quantity === "";
 
 /** What a battery row is missing, or null when it is complete or empty. */
 function batteryProblem(row: BatteryRow): string | null {
@@ -103,7 +141,7 @@ function batteryProblem(row: BatteryRow): string | null {
   const missing: string[] = [];
   if (row.type === "") missing.push("pick a type");
   if (row.type === "other" && row.otherType.trim() === "") missing.push("say which brand");
-  if (row.quantity === "") missing.push("say how many");
+  if (row.quantity === "") missing.push("say how many are in good condition");
   if (missing.length === 0) return null;
   const text = missing.join(" and ");
   return `${text[0]!.toUpperCase()}${text.slice(1)}.`;
@@ -115,20 +153,25 @@ function batteriesFromReport(batteries: Battery[] | undefined): BatteryRow[] {
     type: b.type,
     otherType: b.otherType ?? "",
     quantity: b.quantity === undefined ? "" : String(b.quantity),
-    condition: b.condition,
   }));
 }
 
-function sparesFromReport(spares: Spare[] | undefined): Record<SparePart, SpareRow> {
+/** Older reports saved Other as a ticked box; it comes back as an Other row. */
+function sparesFromReport(spares: Spare[] | undefined): {
+  spares: Record<FixedSparePart, SpareRow>;
+  otherSpares: OtherSpareRow[];
+} {
   const rows = { ...BLANK_SPARES };
+  const others: OtherSpareRow[] = [];
   for (const s of spares ?? []) {
-    rows[s.part] = {
-      on: true,
-      quantity: s.quantity === undefined ? "" : String(s.quantity),
-      specify: s.specify,
-    };
+    const quantity = s.quantity === undefined ? "" : String(s.quantity);
+    if (s.part === "other") {
+      others.push({ key: nextOtherSpareKey++, quantity, specify: s.specify });
+    } else {
+      rows[s.part] = { on: true, quantity, specify: s.specify };
+    }
   }
-  return rows;
+  return { spares: rows, otherSpares: others };
 }
 
 const BLANK: FormState = {
@@ -136,11 +179,76 @@ const BLANK: FormState = {
   kitbot: false, other: false, otherText: "",
   hopperRoof: "", hopperCapacity: "", hopperExpanded: "",
   low: false, mid: false, high: false, duringAuto: false,
-  drivetrainBase: "", drivetrainDetail: "", underTrench: false, overBump: false,
+  drivetrainBase: "", drivetrainDetail: "", drivetrainGearing: "", robotWeight: "",
+  underTrench: false, overBump: false,
   robotNotes: "", otherNotes: "",
   spares: BLANK_SPARES,
+  otherSpares: [],
   batteries: [],
 };
+
+/** The report as the server takes it, minus the team and photo. */
+function reportFromForm(form: FormState) {
+  return {
+    scoring: {
+      turret: form.turret,
+      drumNonFullWidth: form.drumNonFullWidth,
+      drumFullWidth: form.drumFullWidth,
+      fixed: form.fixed,
+      kitbot: form.kitbot,
+      other: form.other,
+      otherText: form.other ? form.otherText : "",
+    },
+    climb: {
+      low: form.low, mid: form.mid, high: form.high,
+      duringAuto: form.duringAuto,
+    },
+    drivetrain: form.drivetrainDetail.trim()
+      ? `${form.drivetrainBase} — ${form.drivetrainDetail.trim()}`
+      : form.drivetrainBase,
+    drivetrainGearing: form.drivetrainGearing.trim(),
+    robotWeight: form.robotWeight === ""
+      ? null
+      : Math.round(Number.parseFloat(form.robotWeight) * 10) / 10,
+    underTrench: form.underTrench,
+    overBump: form.overBump,
+    robotNotes: form.robotNotes,
+    otherNotes: form.otherNotes,
+    spares: [
+      ...FIXED_SPARE_PARTS
+        .filter(({ part }) => form.spares[part].on)
+        .map(({ part }) => {
+          const row = form.spares[part];
+          return {
+            part,
+            ...(row.quantity === "" ? {} : { quantity: Number.parseInt(row.quantity, 10) }),
+            specify: row.specify.trim(),
+          };
+        }),
+      ...form.otherSpares
+        .filter((s) => !otherSpareEmpty(s))
+        .map((s) => ({
+          part: "other" as const,
+          ...(s.quantity === "" ? {} : { quantity: Number.parseInt(s.quantity, 10) }),
+          specify: s.specify.trim(),
+        })),
+    ],
+    batteries: form.batteries
+      .filter((b) => !batteryEmpty(b))
+      .map((b) => ({
+        type: b.type as BatteryType,
+        ...(b.type === "other" ? { otherType: b.otherType.trim() } : {}),
+        ...(b.quantity === "" ? {} : { quantity: Number.parseInt(b.quantity, 10) }),
+      })),
+    hopper: {
+      roof: form.hopperRoof === "" ? null : form.hopperRoof,
+      capacity: toCount(form.hopperCapacity),
+      expandedCapacity: roofExpands(form.hopperRoof)
+        ? toCount(form.hopperExpanded)
+        : null,
+    },
+  };
+}
 
 export default function PitFormPage() {
   const params = useParams();
@@ -181,7 +289,9 @@ export default function PitFormPage() {
         hopperRoof: report.hopper?.roof ?? "",
         hopperCapacity: report.hopper?.capacity?.toString() ?? "",
         hopperExpanded: report.hopper?.expandedCapacity?.toString() ?? "",
-        spares: sparesFromReport(report.spares),
+        drivetrainGearing: report.drivetrainGearing ?? "",
+        robotWeight: report.robotWeight?.toString() ?? "",
+        ...sparesFromReport(report.spares),
         batteries: batteriesFromReport(report.batteries),
       });
     }
@@ -191,13 +301,19 @@ export default function PitFormPage() {
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
 
-  const setSpare = (part: SparePart, patch: Partial<SpareRow>) =>
+  const setSpare = (part: FixedSparePart, patch: Partial<SpareRow>) =>
     setForm((f) => ({ ...f, spares: { ...f.spares, [part]: { ...f.spares[part], ...patch } } }));
 
   const setBattery = (key: number, patch: Partial<BatteryRow>) =>
     setForm((f) => ({
       ...f,
       batteries: f.batteries.map((b) => (b.key === key ? { ...b, ...patch } : b)),
+    }));
+
+  const setOtherSpare = (key: number, patch: Partial<OtherSpareRow>) =>
+    setForm((f) => ({
+      ...f,
+      otherSpares: f.otherSpares.map((s) => (s.key === key ? { ...s, ...patch } : s)),
     }));
 
   const pickPhoto = async (file: File | undefined) => {
@@ -207,17 +323,38 @@ export default function PitFormPage() {
     setPhotoPreview(URL.createObjectURL(compressed));
   };
 
+  // What saving now would store, and so what it would count as.
+  const draft = reportFromForm(form);
+  const hasPhoto = photoFile !== null || Boolean(data?.report?.photoId);
+  const draftBlank = pitIsBlank({ ...draft, photoId: hasPhoto ? "photo" : null });
+  const draftMissing = pitMissing(draft);
+
   const save = async () => {
     if (!data) return;
-    const badSpares = SPARE_PARTS.some(({ part }) => spareProblem(form.spares[part]) !== null);
+    if (draftBlank) {
+      toast.error("Nothing filled in yet", {
+        description: "A blank report would not count as scouted, so nothing was saved.",
+      });
+      return;
+    }
+    const badSpares =
+      FIXED_SPARE_PARTS.some(({ part }) => spareProblem(form.spares[part]) !== null) ||
+      form.otherSpares.some((s) => otherSpareProblem(s) !== null);
     const badBatteries = form.batteries.some((b) => batteryProblem(b) !== null);
-    if (badSpares || badBatteries) {
+    const badWeight = weightProblem(form.robotWeight) !== null;
+    if (badSpares || badBatteries || badWeight) {
       setShowErrors(true);
-      toast.error(
-        badSpares && badBatteries ? "Fill in the spares and batteries"
-          : badSpares ? "Fill in the ticked spares" : "Fill in the batteries",
-        { description: "The rows that need something are outlined in red." },
-      );
+      const sections = [
+        badWeight ? "robot weight" : null,
+        badSpares ? "spares" : null,
+        badBatteries ? "batteries" : null,
+      ].filter((s): s is string => s !== null);
+      const list = sections.length > 1
+        ? `${sections.slice(0, -1).join(", ")} and ${sections[sections.length - 1]}`
+        : sections[0];
+      toast.error(`Check the ${list}`, {
+        description: "What needs fixing is outlined in red.",
+      });
       return;
     }
     setSaving(true);
@@ -235,57 +372,15 @@ export default function PitFormPage() {
         photoId = body.storageId;
       }
 
-      await upsert({
-        teamId: data.team._id,
-        scoring: {
-          turret: form.turret,
-          drumNonFullWidth: form.drumNonFullWidth,
-          drumFullWidth: form.drumFullWidth,
-          fixed: form.fixed,
-          kitbot: form.kitbot,
-          other: form.other,
-          otherText: form.other ? form.otherText : "",
-        },
-        climb: {
-          low: form.low, mid: form.mid, high: form.high,
-          duringAuto: form.duringAuto,
-        },
-        drivetrain: form.drivetrainDetail.trim()
-          ? `${form.drivetrainBase} — ${form.drivetrainDetail.trim()}`
-          : form.drivetrainBase,
-        underTrench: form.underTrench,
-        overBump: form.overBump,
-        robotNotes: form.robotNotes,
-        otherNotes: form.otherNotes,
-        spares: SPARE_PARTS
-          .filter(({ part }) => form.spares[part].on)
-          .map(({ part }) => {
-            const row = form.spares[part];
-            return {
-              part,
-              ...(row.quantity === "" ? {} : { quantity: Number.parseInt(row.quantity, 10) }),
-              specify: row.specify.trim(),
-            };
-          }),
-        batteries: form.batteries
-          .filter((b) => !batteryEmpty(b))
-          .map((b) => ({
-            type: b.type as BatteryType,
-            ...(b.type === "other" ? { otherType: b.otherType.trim() } : {}),
-            ...(b.quantity === "" ? {} : { quantity: Number.parseInt(b.quantity, 10) }),
-            condition: b.condition.trim(),
-          })),
-        photoId,
-        hopper: {
-          roof: form.hopperRoof === "" ? null : form.hopperRoof,
-          capacity: toCount(form.hopperCapacity),
-          expandedCapacity: roofExpands(form.hopperRoof)
-            ? toCount(form.hopperExpanded)
-            : null,
-        },
-      });
+      await upsert({ teamId: data.team._id, ...draft, photoId });
 
-      toast.success(`Saved team ${data.team.number}`);
+      if (draftMissing.length === 0) {
+        toast.success(`Saved team ${data.team.number}`);
+      } else {
+        toast.success(`Saved team ${data.team.number} as partially scouted`, {
+          description: `Still needed: ${draftMissing.join(", ")}.`,
+        });
+      }
       void navigate("/pit");
     } catch (error) {
       toast.error("Could not save", {
@@ -317,14 +412,18 @@ export default function PitFormPage() {
   }
 
   const existingPhoto = photoPreview ?? data.photoUrl;
+  const savedStatus = pitStatus(data.report);
+  const savedMissing = data.report ? pitMissing(data.report) : [];
 
   return (
     <PageShell
       title={`${data.team.number} · ${data.team.nickname}`}
       description={
-        data.report
+        savedStatus === "complete"
           ? "Already scouted. Saving updates the existing report."
-          : "Not yet scouted."
+          : savedStatus === "partial"
+            ? `Partially scouted. Still needed: ${savedMissing.join(", ")}.`
+            : "Not yet scouted."
       }
       actions={
         <Button variant="outline" onClick={() => void navigate("/pit")}>
@@ -449,7 +548,39 @@ export default function PitFormPage() {
             ) : null}
           </div>
 
-            <CapabilityCheck id="trench" label="Fits under the trench"
+          <div className="space-y-2">
+            <Label htmlFor="drivetrain-gearing">Drivetrain gearing</Label>
+            <Input
+              id="drivetrain-gearing"
+              placeholder="e.g. L2, 6.75:1"
+              maxLength={100}
+              value={form.drivetrainGearing}
+              onChange={(e) => set("drivetrainGearing", e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="robot-weight">Robot weight (with bumpers and battery)</Label>
+            <div className="relative">
+              <Input
+                id="robot-weight"
+                inputMode="decimal"
+                placeholder="e.g. 112.5"
+                className="pr-10"
+                value={form.robotWeight}
+                aria-invalid={showErrors && weightProblem(form.robotWeight) !== null ? true : undefined}
+                onChange={(e) => set("robotWeight", weightDigits(e.target.value))}
+              />
+              <span className="text-muted-foreground pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm">
+                lbs
+              </span>
+            </div>
+            {showErrors && weightProblem(form.robotWeight) !== null ? (
+              <p className="text-destructive text-xs">{weightProblem(form.robotWeight)}</p>
+            ) : null}
+          </div>
+
+          <CapabilityCheck id="trench" label="Fits under the trench"
             description="22in clearance."
             checked={form.underTrench} onChange={(v) => set("underTrench", v)} />
           <CapabilityCheck id="bump" label="Can cross the bump"
@@ -462,18 +593,20 @@ export default function PitFormPage() {
           <CardTitle>Spares</CardTitle>
           <CardDescription>
             Spare parts the team has in the pit. Tick a part and say what
-            exactly; Est. Qty is a rough count and can be left blank.
+            exactly; Est. Qty is a rough count and can be left blank. Add an
+            Other row for anything else.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          {SPARE_PARTS.map(({ part, label }) => {
+          {FIXED_SPARE_PARTS.map(({ part, label }) => {
             const row = form.spares[part];
             const problem = showErrors ? spareProblem(row) : null;
             return (
               <div key={part}
                 className={[
                   "grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2 rounded-lg border p-3",
-                  "sm:grid-cols-[minmax(0,1.3fr)_4.5rem_minmax(0,2fr)] sm:items-center",
+                  // The empty fourth column lines these up with the Other rows' remove button.
+                  "sm:grid-cols-[minmax(0,1.3fr)_4.5rem_minmax(0,2fr)_2rem] sm:items-center",
                   problem ? "border-destructive" : "",
                 ].join(" ")}>
                 <label htmlFor={`spare-${part}`}
@@ -493,11 +626,51 @@ export default function PitFormPage() {
                   aria-invalid={problem !== null && row.specify.trim() === ""}
                   onChange={(e) => setSpare(part, { specify: e.target.value })} />
                 {problem ? (
-                  <p className="text-destructive col-span-2 text-xs sm:col-span-3">{problem}</p>
+                  <p className="text-destructive col-span-2 text-xs sm:col-span-4">{problem}</p>
                 ) : null}
               </div>
             );
           })}
+          {form.otherSpares.map((row, i) => {
+            const n = i + 1;
+            const problem = showErrors ? otherSpareProblem(row) : null;
+            return (
+              <div key={row.key}
+                className={[
+                  "grid grid-cols-[4.5rem_minmax(0,1fr)_2rem] gap-2 rounded-lg border p-3",
+                  "sm:grid-cols-[minmax(0,1.3fr)_4.5rem_minmax(0,2fr)_2rem] sm:items-center",
+                  problem ? "border-destructive" : "",
+                ].join(" ")}>
+                <span className="col-span-3 flex min-h-8 items-center text-base sm:col-span-1">
+                  Other
+                </span>
+                <Input aria-label={`Other spare ${n} estimated quantity`} inputMode="numeric" pattern="[0-9]*"
+                  placeholder="Est. Qty" value={row.quantity}
+                  onChange={(e) => setOtherSpare(row.key, { quantity: positiveDigits(e.target.value) })} />
+                <Input aria-label={`Other spare ${n} specifics`} placeholder="Specify"
+                  value={row.specify} maxLength={200}
+                  aria-invalid={problem !== null}
+                  onChange={(e) => setOtherSpare(row.key, { specify: e.target.value })} />
+                <Button size="icon" variant="ghost" className="size-8"
+                  aria-label={`Remove other spare ${n}`}
+                  onClick={() => setForm((f) => ({
+                    ...f, otherSpares: f.otherSpares.filter((s) => s.key !== row.key),
+                  }))}>
+                  <X className="size-4" />
+                </Button>
+                {problem ? (
+                  <p className="text-destructive col-span-3 text-xs sm:col-span-4">{problem}</p>
+                ) : null}
+              </div>
+            );
+          })}
+          {form.otherSpares.length < MAX_OTHER_SPARES ? (
+            <button type="button"
+              onClick={() => setForm((f) => ({ ...f, otherSpares: [...f.otherSpares, blankOtherSpare()] }))}
+              className="text-muted-foreground hover:bg-accent/50 hover:text-foreground flex min-h-12 w-full items-center gap-2 rounded-lg border border-dashed p-3 text-left text-base transition-colors">
+              <Plus className="size-4" /> Add other spare
+            </button>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -505,7 +678,8 @@ export default function PitFormPage() {
         <CardHeader>
           <CardTitle>Batteries</CardTitle>
           <CardDescription>
-            One row per kind of battery the team brought. Type and Qty are required.
+            One row per kind of battery the team brought, with how many of
+            them are in good condition. Both are required.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -515,11 +689,12 @@ export default function PitFormPage() {
             return (
               <div key={row.key}
                 className={[
-                  "grid grid-cols-[4.5rem_minmax(0,1fr)_2rem] gap-2 rounded-lg border p-3",
-                  "sm:grid-cols-[minmax(0,1.3fr)_4.5rem_minmax(0,2fr)_2rem] sm:items-start",
+                  // Phones: type on its own line, so "# in good condition" fits.
+                  "grid grid-cols-[minmax(0,1fr)_2rem] items-start gap-2 rounded-lg border p-3",
+                  "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_2rem]",
                   problem ? "border-destructive" : "",
                 ].join(" ")}>
-                <div className="col-span-3 grid gap-2 sm:col-span-1">
+                <div className="col-span-2 grid gap-2 sm:col-span-1">
                   {/* A themed menu, not the browser's own select, which ignores the
                       app's theme; [color-scheme:dark] only half fixed it. */}
                   <MenuSelect label={`Battery ${n} type`} value={row.type} placeholder="Type"
@@ -535,13 +710,10 @@ export default function PitFormPage() {
                       onChange={(e) => setBattery(row.key, { otherType: e.target.value })} />
                   ) : null}
                 </div>
-                <Input aria-label={`Battery ${n} quantity`} inputMode="numeric" pattern="[0-9]*"
-                  placeholder="Qty" value={row.quantity}
+                <Input aria-label={`Battery ${n} number in good condition`} inputMode="numeric"
+                  pattern="[0-9]*" placeholder="# in good condition" value={row.quantity}
                   aria-invalid={problem !== null && row.quantity === ""}
                   onChange={(e) => setBattery(row.key, { quantity: positiveDigits(e.target.value) })} />
-                <Input aria-label={`Battery ${n} condition`} placeholder="Condition"
-                  value={row.condition} maxLength={200}
-                  onChange={(e) => setBattery(row.key, { condition: e.target.value })} />
                 <Button size="icon" variant="ghost" className="size-8"
                   aria-label={`Remove battery ${n}`}
                   onClick={() => setForm((f) => ({
@@ -550,7 +722,7 @@ export default function PitFormPage() {
                   <X className="size-4" />
                 </Button>
                 {problem ? (
-                  <p className="text-destructive col-span-3 text-xs sm:col-span-4">{problem}</p>
+                  <p className="text-destructive col-span-2 text-xs sm:col-span-3">{problem}</p>
                 ) : null}
               </div>
             );
@@ -605,6 +777,13 @@ export default function PitFormPage() {
         </CardContent>
       </Card>
 
+      {!draftBlank && draftMissing.length > 0 ? (
+        <p className="text-muted-foreground text-sm">
+          Saving now marks this team{" "}
+          <span className="text-foreground font-medium">partially scouted</span>.
+          Still needed: {draftMissing.join(", ")}.
+        </p>
+      ) : null}
       <Button className="h-14 w-full text-base" disabled={saving}
         onClick={() => void save()}>
         {saving ? <LoadingWheel className="size-4" /> : null}

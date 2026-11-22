@@ -134,7 +134,7 @@ function Chip({
           </Button>
         ) : null}
         <Badge variant={pitNoted ? "secondary" : "outline"} className="shrink-0 text-[10px]">
-          {pitNoted ? "Pit notes" : "No pit"}
+          {pitNoted ? "Pit" : "No pit"}
         </Badge>
       </div>
       {row.note ? <p className="mt-1 line-clamp-2 pl-1 text-[11px] italic">{row.note}</p> : null}

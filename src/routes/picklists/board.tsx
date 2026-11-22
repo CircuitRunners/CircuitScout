@@ -15,6 +15,7 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { PageShell } from "@/routes/page-shell";
 import { TeamChip, type ChipStats } from "./team-chip";
+import type { PitStatus } from "@/lib/pit-status";
 import { TeamDetail } from "@/routes/teams/team-detail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -148,7 +149,7 @@ export default function PickListBoardPage() {
   );
 
   const pitByTeam = useMemo(
-    () => new Map<string, boolean>((teams ?? []).map((t) => [t._id, t.pitScouted])),
+    () => new Map<string, PitStatus>((teams ?? []).map((t) => [t._id, t.pitStatus])),
     [teams],
   );
 
@@ -371,7 +372,7 @@ export default function PickListBoardPage() {
                       entryId={row.entryId}
                       teamNumber={row.teamNumber}
                       nickname={row.nickname}
-                      pitScouted={pitByTeam.get(row.teamId) ?? false}
+                      pitStatus={pitByTeam.get(row.teamId) ?? "none"}
                       stats={statFor(row.teamId)}
                       rank={ranks.byTeam.get(row.teamNumber) ?? null}
                       draggable={

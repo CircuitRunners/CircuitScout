@@ -17,7 +17,7 @@ import {
 type Robot = {
   teamNumber: number;
   nickname: string;
-  notes: { id: string; scoutName: string; notes: string }[];
+  notes: { id: string; scoutName: string; notes: string; sections: [string, string][] }[];
 };
 
 function Side({ label, robots, red }: { label: string; robots: Robot[]; red: boolean }) {
@@ -43,7 +43,17 @@ function Side({ label, robots, red }: { label: string; robots: Robot[]; red: boo
               <p className="text-muted-foreground text-sm">No notes on this robot in this match.</p>
             ) : (
               robot.notes.map((n) => (
-                <div key={n.id} className="space-y-0.5">
+                <div key={n.id} className="space-y-1">
+                  {n.sections.length > 0 ? (
+                    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-sm">
+                      {n.sections.map(([label, value]) => (
+                        <div key={label} className="contents">
+                          <dt className="text-muted-foreground">{label}</dt>
+                          <dd className="break-words whitespace-pre-wrap">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
                   <p className="text-sm whitespace-pre-wrap">{n.notes}</p>
                   <p className="text-muted-foreground text-xs">{n.scoutName}</p>
                 </div>

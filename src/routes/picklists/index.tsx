@@ -3,6 +3,7 @@ import { Check, GitMerge, ListPlus, Lock, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
+import { ConvexError } from "convex/values";
 
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -167,8 +168,24 @@ export default function PickListsPage() {
                 ) : null}
                 <Button size="sm" variant={list.isSubmitted ? "outline" : "secondary"}
                   onClick={() => {
-                    if (list.isSubmitted) void unsubmit({ listId: list._id });
-                    else void setSubmitted({ listId: list._id });
+                    if (list.isSubmitted) {
+                      void unsubmit({ listId: list._id });
+                      return;
+                    }
+                    void setSubmitted({ listId: list._id })
+                      .then(() => toast.success(`${list.name} submitted`))
+                      .catch((error: unknown) => {
+                        if (error instanceof ConvexError) {
+                          toast.error(String(error.data), {
+                            description:
+                              "Every first pick and do-not-pick needs a comment before the list can be submitted.",
+                          });
+                        } else {
+                          toast.error("Could not submit", {
+                            description: error instanceof Error ? error.message : String(error),
+                          });
+                        }
+                      });
                   }}>
                   {list.isSubmitted ? "Withdraw" : "Submit"}
                 </Button>

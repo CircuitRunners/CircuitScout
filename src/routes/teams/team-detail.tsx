@@ -194,12 +194,18 @@ export function TeamDetail({
             )}
 
             <h3 className="font-medium">Pit report</h3>
-            {data.pitReport === null ? (
+            {data.pitReport === null || data.pitStatus === "none" ? (
               <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
                 Not pit scouted.
               </p>
             ) : (
               <div className="space-y-3 rounded-lg border p-3">
+                {data.pitStatus === "partial" ? (
+                  <p className="text-muted-foreground text-xs">
+                    <Badge variant="outline" className="mr-2 border-dashed">Partially scouted</Badge>
+                    Still needed: {data.pitMissing.join(", ")}.
+                  </p>
+                ) : null}
                 {data.photoUrl ? (
                   <img src={data.photoUrl} alt={`Team ${data.team.number} robot`}
                     className="max-h-56 w-full rounded-md object-contain" />
@@ -237,12 +243,21 @@ export function TeamDetail({
                 {(data.pitReport.batteries ?? []).length > 0 ? (
                   <p className="text-sm">
                     <BatteryFull className="mr-1 inline size-3" />
-                    Batteries: {(data.pitReport.batteries ?? []).map(batteryText).join(" · ")}
+                    Batteries in good condition:{" "}
+                    {(data.pitReport.batteries ?? []).map(batteryText).join(" · ")}
                   </p>
                 ) : null}
                 <p className="text-sm">
                   <Wrench className="mr-1 inline size-3" />
-                  {data.pitReport.drivetrain || "Drivetrain not recorded"}
+                  {[
+                    data.pitReport.drivetrain || "Drivetrain not recorded",
+                    data.pitReport.drivetrainGearing
+                      ? `Gearing ${data.pitReport.drivetrainGearing}`
+                      : null,
+                    data.pitReport.robotWeight !== undefined
+                      ? `${data.pitReport.robotWeight} lbs`
+                      : null,
+                  ].filter(Boolean).join(" · ")}
                 </p>
                 {data.pitReport.robotNotes ? (
                   <p className="text-sm">{data.pitReport.robotNotes}</p>

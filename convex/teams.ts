@@ -4,6 +4,7 @@ import type { QueryCtx } from "./_generated/server";
 import { activeEvent , currentTeamNumber } from "./lib/guards";
 import { derive, summarise } from "./lib/summarise";
 import { reportCountsFor } from "./lib/reportCounts";
+import { pitMissing, pitStatus, type PitStatus } from "./lib/pitStatus";
 import type { Doc, Id } from "./_generated/dataModel";
 
 type Tier = "t1" | "t2" | "t3" | "dnp" | "uncategorized";
@@ -56,7 +57,7 @@ export const listWithStatus = query({
       .withIndex("by_event_scouting_team", (q) =>
         q.eq("eventId", event._id).eq("scoutingTeamNumber", myTeam))
       .collect();
-    const scouted = new Set(pit.map((p) => p.teamId));
+    const statusByTeam = new Map(pit.map((p) => [p.teamId, pitStatus(p)]));
 
     // One small row per team, rather than every report at the event.
     const counts = await reportCountsFor(ctx, event._id);
@@ -67,7 +68,9 @@ export const listWithStatus = query({
       .sort((a, b) => a.number - b.number)
       .map((t) => ({
         ...t,
-        pitScouted: scouted.has(t._id),
+        // pitScouted means fully scouted; pitStatus also tells partial from none.
+        pitStatus: statusByTeam.get(t._id) ?? ("none" as PitStatus),
+        pitScouted: statusByTeam.get(t._id) === "complete",
         reportCount: counts.get(t._id) ?? 0,
         tier: tiers.get(t._id) ?? ("uncategorized" as Tier),
       }));
@@ -171,6 +174,8 @@ export const detail = query({
     return {
       team,
       pitReport,
+      pitStatus: pitStatus(pitReport),
+      pitMissing: pitReport ? pitMissing(pitReport) : [],
       photoUrl,
       pitScoutName: pitReport
         ? (nameByUser.get(pitReport.scoutId) ?? "Unknown scout")

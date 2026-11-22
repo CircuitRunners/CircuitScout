@@ -66,16 +66,43 @@ export function NotesTeamDetail({
             ) : null}
 
             <div className="space-y-2">
-              <h3 className="font-medium">Pit notes</h3>
-              {data.pit ? (
-                <div className="space-y-1 rounded-lg border p-3">
-                  <p className="text-sm whitespace-pre-wrap">{data.pit.notes}</p>
+              <h3 className="font-medium">Pit report</h3>
+              {data.pit && data.pit.status !== "none" ? (
+                <div className="space-y-2 rounded-lg border p-3">
+                  {data.pit.status === "partial" ? (
+                    <p className="text-muted-foreground text-xs">
+                      Partially scouted. Still needed: {data.pit.missing.join(", ")}.
+                    </p>
+                  ) : null}
+                  {data.pit.photoUrl ? (
+                    <img src={data.pit.photoUrl} alt={`Team ${data.team.number} robot`}
+                      className="max-h-56 w-full rounded-md object-contain" />
+                  ) : null}
+                  <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+                    {([
+                      ["Scoring", data.pit.scoringText],
+                      ["Drivetrain", data.pit.drivetrain],
+                      ["Gearing", data.pit.drivetrainGearing],
+                      ["Weight", data.pit.robotWeight === null ? "" : `${data.pit.robotWeight} lbs`],
+                      ["Spares", data.pit.spares.join(" · ")],
+                      ["Batteries (good)", data.pit.batteries.join(" · ")],
+                    ] as const).filter(([, value]) => value !== "").map(([label, value]) => (
+                      <div key={label} className="contents">
+                        <dt className="text-muted-foreground">{label}</dt>
+                        <dd className="whitespace-pre-wrap break-words">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {data.pit.notes ? <p className="text-sm whitespace-pre-wrap">{data.pit.notes}</p> : null}
+                  {data.pit.otherNotes ? (
+                    <p className="text-muted-foreground text-sm whitespace-pre-wrap">{data.pit.otherNotes}</p>
+                  ) : null}
                   <p className="text-muted-foreground text-xs">
                     {data.pit.scoutName} · {new Date(data.pit.updatedAt).toLocaleString()}
                   </p>
                 </div>
               ) : (
-                <p className="text-muted-foreground text-sm">Your team has no pit notes on them yet.</p>
+                <p className="text-muted-foreground text-sm">Your team has not pit scouted them yet.</p>
               )}
             </div>
 
@@ -93,6 +120,16 @@ export function NotesTeamDetail({
                         {n.matchNumber === null ? "Unknown match" : `Qual ${n.matchNumber}`}
                         <span className="text-muted-foreground font-normal"> · {n.scoutName}</span>
                       </p>
+                      {n.sections.length > 0 ? (
+                        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-sm">
+                          {n.sections.map(([label, value]) => (
+                            <div key={label} className="contents">
+                              <dt className="text-muted-foreground">{label}</dt>
+                              <dd className="break-words whitespace-pre-wrap">{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : null}
                       <p className="text-sm whitespace-pre-wrap">{n.notes}</p>
                     </div>
                   ))}

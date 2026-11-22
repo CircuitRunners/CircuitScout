@@ -3,7 +3,9 @@ import { mutation, query } from "./_generated/server";
 import { activeEvent, currentTeamNumber, requireUser } from "./lib/guards";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
-import { SPARE_PARTS, type Battery, type Spare } from "./lib/spares";
+import { isPracticing, savePractice } from "./lib/practice";
+import { MAX_OTHER_SPARES, SPARE_PARTS, type Battery, type Spare } from "./lib/spares";
+import { pitIsBlank } from "./lib/pitStatus";
 
 const scoringInput = v.object({
   turret: v.boolean(),
@@ -65,7 +67,8 @@ const batteryInput = v.object({
   ),
   otherType: v.optional(v.string()),
   quantity: v.optional(v.number()),
-  condition: v.string(),
+  // Phones still running the old bundle send it; it is ignored.
+  condition: v.optional(v.string()),
 });
 
 /** An optional count: absent, or a whole number from 1 to 999. */
@@ -78,17 +81,26 @@ function optionalCount(n: number | undefined, what: string): number | undefined 
 }
 
 /**
- * A ticked spare needs to say what exactly it is; the count is an optional
- * estimate. The form checks this too, but the server is what a stale or
- * edited client cannot skip.
+ * A spare needs to say what exactly it is; the count is an optional estimate.
+ * Intake, indexer, shooter and swerve appear once at most; Other can repeat,
+ * one row per thing. The form checks this too, but the server is what a stale
+ * or edited client cannot skip.
  */
 function cleanSpares(spares: Spare[]): Spare[] {
   const seen = new Set<string>();
   const order = new Map(SPARE_PARTS.map((p, i) => [p.part, i]));
+  let others = 0;
   return spares
     .map((s) => {
-      if (seen.has(s.part)) throw new Error("Each spare part can only be listed once.");
-      seen.add(s.part);
+      if (s.part === "other") {
+        others += 1;
+        if (others > MAX_OTHER_SPARES) {
+          throw new Error(`List at most ${MAX_OTHER_SPARES} Other spares.`);
+        }
+      } else {
+        if (seen.has(s.part)) throw new Error("Each spare part can only be listed once.");
+        seen.add(s.part);
+      }
       const quantity = optionalCount(s.quantity, "Spare quantities");
       const specify = s.specify.trim();
       if (specify === "") throw new Error("Say what each spare is.");
@@ -98,18 +110,20 @@ function cleanSpares(spares: Spare[]): Spare[] {
         ? { part: s.part, specify }
         : { part: s.part, quantity, specify };
     })
+    // sort is stable, so several Other rows keep the order they were added in.
     .sort((a, b) => (order.get(a.part) ?? 0) - (order.get(b.part) ?? 0));
 }
 
-/** A type and a count on every row, and a brand when the type is Other. */
+/** A type and a good-condition count on every row, and a brand for Other. */
 function cleanBatteries(batteries: Battery[]): Battery[] {
   if (batteries.length > 20) throw new Error("List at most 20 battery types.");
   return batteries.map((b) => {
-    if (b.quantity === undefined) throw new Error("Say how many of each battery.");
-    const quantity = optionalCount(b.quantity, "Battery quantities");
-    const condition = b.condition.trim();
-    if (condition.length > 200) throw new Error("Battery conditions are limited to 200 characters.");
-    const row: Battery = { type: b.type, condition };
+    if (b.quantity === undefined) {
+      throw new Error("Say how many of each battery are in good condition.");
+    }
+    const quantity = optionalCount(b.quantity, "Battery counts");
+    // condition is no longer stored, even when an old client sends one.
+    const row: Battery = { type: b.type };
     if (b.type === "other") {
       const otherType = (b.otherType ?? "").trim();
       if (otherType === "") throw new Error("Say which brand each Other battery is.");
@@ -119,6 +133,22 @@ function cleanBatteries(batteries: Battery[]): Battery[] {
     if (quantity !== undefined) row.quantity = quantity;
     return row;
   });
+}
+
+/** Pounds with bumpers and battery, rounded to one decimal place; null clears it. */
+function cleanWeight(pounds: number | null): number | undefined {
+  if (pounds === null) return undefined;
+  if (!Number.isFinite(pounds) || pounds < 10 || pounds > 200) {
+    throw new Error("Robot weight must be between 10 and 200 lbs.");
+  }
+  return Math.round(pounds * 10) / 10;
+}
+
+/** Trimmed; blank clears it. */
+function cleanGearing(text: string): string | undefined {
+  const gearing = text.trim();
+  if (gearing.length > 100) throw new Error("Drivetrain gearing is limited to 100 characters.");
+  return gearing === "" ? undefined : gearing;
 }
 
 /**
@@ -165,7 +195,8 @@ export const forTeamNumber = query({
       .unique();
     if (!team) return null;
 
-    const report = await mine(ctx, event._id, team._id);
+    // Practice starts from a blank form, not the team's real report.
+    const report = (await isPracticing(ctx)) ? null : await mine(ctx, event._id, team._id);
     const photoUrl = report?.photoId ? await ctx.storage.getUrl(report.photoId) : null;
 
     return { team, report, photoUrl };
@@ -201,11 +232,26 @@ export const upsert = mutation({
     // Optional for the same reason as hopper.
     spares: v.optional(v.array(spareInput)),
     batteries: v.optional(v.array(batteryInput)),
+    // Optional for the same reason. null clears a weight that was set.
+    robotWeight: v.optional(v.union(v.number(), v.null())),
+    drivetrainGearing: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const scoutId = await requireUser(ctx);
     const event = await activeEvent(ctx);
     if (!event) throw new Error("No active event.");
+
+    if (await isPracticing(ctx)) {
+      const team = await ctx.db.get(args.teamId);
+      if (!team || team.eventId !== event._id) {
+        throw new Error("That team is not part of the active event.");
+      }
+      // A practice photo is not kept.
+      if (args.photoId) await ctx.storage.delete(args.photoId);
+      return await savePractice(ctx, {
+        kind: "pit", teamNumber: team.number, matchNumber: null, payload: { ...args, photoId: null },
+      });
+    }
 
     const scoutingTeamNumber = await currentTeamNumber(ctx);
     if (scoutingTeamNumber === undefined) {
@@ -233,10 +279,22 @@ export const upsert = mutation({
       hopper: args.hopper ? cleanHopper(args.hopper) : existing?.hopper,
       spares: args.spares ? cleanSpares(args.spares) : existing?.spares,
       batteries: args.batteries ? cleanBatteries(args.batteries) : existing?.batteries,
+      robotWeight: args.robotWeight === undefined
+        ? existing?.robotWeight
+        : cleanWeight(args.robotWeight),
+      drivetrainGearing: args.drivetrainGearing === undefined
+        ? existing?.drivetrainGearing
+        : cleanGearing(args.drivetrainGearing),
       scoutId,
       scoutingTeamNumber,
       updatedAt: Date.now(),
     };
+
+    // A blank report would leave the team looking visited with nothing in it.
+    // The form refuses too; this covers stale and edited clients.
+    if (pitIsBlank(fields)) {
+      throw new Error("Nothing is filled in, so there is nothing to save.");
+    }
 
     if (existing) {
       await ctx.db.patch(existing._id, fields);

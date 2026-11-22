@@ -76,6 +76,15 @@ export default function ArchiveEventPage() {
         Archived data. These numbers are not from your current competition.
       </div>
 
+      {data.deleted ? (
+        <p className="text-muted-foreground rounded-lg border border-dashed p-3 text-sm">
+          This event has been deleted.{" "}
+          {data.snapshotAt !== null
+            ? `Showing a snapshot taken ${new Date(data.snapshotAt).toLocaleString()}, just before it was deleted.`
+            : "Showing its data until it is purged."}
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2">
         <Input className="max-w-56" placeholder="Team number or name"
           value={search} onChange={(e) => setSearch(e.target.value)} />

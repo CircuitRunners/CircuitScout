@@ -107,7 +107,8 @@ export function StatSourcesCard({ isFullAdmin }: { isFullAdmin: boolean }) {
                 .then((r) => {
                   const summary =
                     `EPA for ${r.epaTeams} teams · xP for ${r.xpTeams} teams · ` +
-                    `${r.matchesUpdated} matches updated · ${r.rankedTeams} teams ranked.`;
+                    `${r.matchesUpdated} matches updated · ${r.rankedTeams} teams ranked · ` +
+                    `${r.predictedMatches} match predictions.`;
                   if (r.problems.length > 0) {
                     toast.warning("Refreshed, with problems", {
                       description: `${summary} ${r.problems.join(" · ")}`,

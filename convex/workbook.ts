@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { batteryText, spareText } from "./lib/spares";
+import { PIT_STATUS_LABELS, pitStatus } from "./lib/pitStatus";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { activeEventForTeam, currentProfile, requireTeamAdmin } from "./lib/guards";
@@ -206,7 +207,10 @@ export const forTeam = query({
           team: team.number,
           nickname: team.nickname,
           scout: nameByUser.get(p.scoutId) ?? "",
+          status: PIT_STATUS_LABELS[pitStatus(p)],
           drivetrain: p.drivetrain,
+          drivetrainGearing: p.drivetrainGearing ?? "",
+          robotWeightLbs: p.robotWeight ?? "",
           turret: p.scoring.turret,
           drumFullWidth: p.scoring.drumFullWidth,
           drumNarrow: p.scoring.drumNonFullWidth,
@@ -222,7 +226,7 @@ export const forTeam = query({
               ? (p.hopper.expandedCapacity ?? "")
               : "",
           spares: (p.spares ?? []).map(spareText).join("; "),
-          batteries: (p.batteries ?? []).map(batteryText).join("; "),
+          batteriesInGoodCondition: (p.batteries ?? []).map(batteryText).join("; "),
           climbLow: p.climb.low,
           climbMid: p.climb.mid,
           climbHigh: p.climb.high,
@@ -286,8 +290,8 @@ export const forTeam = query({
       list.push({ report: r, isAutoWinner: winnerFlag(r) });
       byTeam.set(r.teamId, list);
     }
-    const pitScouted = new Set(
-      pit.filter((p) => p.scoutingTeamNumber === teamNumber).map((p) => p.teamId),
+    const pitStatusByTeam = new Map(
+      pit.filter((p) => p.scoutingTeamNumber === teamNumber).map((p) => [p.teamId, pitStatus(p)]),
     );
 
     const summaryByNumber = new Map<number, ReturnType<typeof summarise>>();
@@ -305,7 +309,7 @@ export const forTeam = query({
           stateProv: t.stateProv,
           country: t.country,
           tbaTeamKey: t.tbaTeamKey,
-          pitScouted: pitScouted.has(t._id),
+          pitStatus: PIT_STATUS_LABELS[pitStatusByTeam.get(t._id) ?? "none"],
           tbaRank: rankByNumber.get(t.number) ?? "",
           reportCount: s.reportCount,
           avgAutoFuel: s.avgAutoFuel,

@@ -68,7 +68,30 @@ export default defineSchema({
     role: v.union(v.literal("admin"), v.literal("teamAdmin"), v.literal("scout")),
     weightTier: v.union(v.literal("lead"), v.literal("trusted"), v.literal("normal")),
     createdAt: v.number(),
+    /** While true, scouting submissions go to practiceSubmissions instead. */
+    practiceMode: v.optional(v.boolean()),
   }).index("by_user", ["userId"]),
+
+  /**
+   * What a scout submitted in practice mode. Kept apart from the real tables
+   * on purpose: nothing that computes stats, coverage, pick lists or exports
+   * reads this table, so practice cannot leak into real numbers. payload is
+   * the submission as sent, as JSON. One row per thing practised; doing the
+   * same robot again replaces it.
+   */
+  practiceSubmissions: defineTable({
+    userId: v.id("users"),
+    eventId: v.id("events"),
+    kind: v.union(
+      v.literal("match"), v.literal("pit"), v.literal("pitNote"), v.literal("matchNote"),
+    ),
+    teamNumber: v.number(),
+    matchNumber: v.union(v.number(), v.null()),
+    payload: v.string(),
+    submittedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_target", ["userId", "kind", "eventId", "teamNumber", "matchNumber"]),
 
   /**
    * Someone claiming a team number. Recorded rather than applied silently:
@@ -109,6 +132,24 @@ export default defineSchema({
   })
     .index("by_key", ["tbaEventKey"])
     .index("by_active", ["isActive"]),
+
+  /**
+   * What Past Events shows for a deleted event: its list row and per-team
+   * table as they were right before deletion. One per event key. Live data
+   * always wins: recovering the event removes its snapshot, and a snapshot is
+   * ignored while an undeleted event with the same key exists.
+   */
+  archiveSnapshots: defineTable({
+    eventKey: v.string(),
+    name: v.string(),
+    season: v.number(),
+    teamCount: v.number(),
+    matchCount: v.number(),
+    reportCount: v.number(),
+    /** The per-team table, as JSON: { teamNumber, nickname, stats }[]. */
+    rows: v.string(),
+    takenAt: v.number(),
+  }).index("by_key", ["eventKey"]),
 
   /**
    * Which event each FRC team is currently scouting. Teams share the pool of
@@ -161,8 +202,31 @@ export default defineSchema({
     teamId: v.id("teams"),
     scoutId: v.id("users"),
     scoutingTeamNumber: v.number(),
+    /** Robot notes. On rows from before the pit form, the whole note. */
     notes: v.string(),
     updatedAt: v.number(),
+    // The pit form for seasons without their own forms. All optional: rows
+    // written as plain notes have none of them.
+    scoringText: v.optional(v.string()),
+    drivetrain: v.optional(v.string()),
+    drivetrainGearing: v.optional(v.string()),
+    /** Pounds with bumpers and battery, 10 to 200. */
+    robotWeight: v.optional(v.number()),
+    spares: v.optional(v.array(v.object({
+      part: v.union(v.literal("swerve"), v.literal("other")),
+      quantity: v.optional(v.number()),
+      specify: v.string(),
+    }))),
+    batteries: v.optional(v.array(v.object({
+      type: v.union(
+        v.literal("mk"), v.literal("energizer"), v.literal("duracell"), v.literal("other"),
+      ),
+      otherType: v.optional(v.string()),
+      /** How many are in good condition. */
+      quantity: v.optional(v.number()),
+    }))),
+    photoId: v.optional(v.union(v.id("_storage"), v.null())),
+    otherNotes: v.optional(v.string()),
   })
     .index("by_event", ["eventId"])
     .index("by_event_team", ["eventId", "teamId"]),
@@ -174,9 +238,23 @@ export default defineSchema({
     teamId: v.id("teams"),
     scoutId: v.id("users"),
     scoutingTeamNumber: v.number(),
+    /** Final notes. On rows from before the match form, the whole note. */
     notes: v.string(),
     submittedAt: v.number(),
     updatedAt: v.number(),
+    // The match form for seasons without their own forms. All optional: rows
+    // written as plain notes have none of them.
+    autoPath: v.optional(v.string()),
+    autoScoring: v.optional(v.string()),
+    teleopScoring: v.optional(v.string()),
+    endgame: v.optional(v.string()),
+    /** 1 to 10. */
+    driver: v.optional(v.number()),
+    defense: v.optional(v.number()),
+    broke: v.optional(v.boolean()),
+    brokeNotes: v.optional(v.string()),
+    inconsistent: v.optional(v.boolean()),
+    inconsistentNotes: v.optional(v.string()),
   })
     .index("by_event", ["eventId"])
     .index("by_event_team", ["eventId", "teamId"])
@@ -188,6 +266,24 @@ export default defineSchema({
    * than on teams, so a refresh never touches imported TBA data and a failed
    * fetch leaves the roster intact.
    */
+  /**
+   * Statbotics' and match13's own prediction for one match, from their EPA
+   * and xP models. One row per match per source, pulled with EPA and xP.
+   */
+  matchPredictions: defineTable({
+    eventId: v.id("events"),
+    /** TBA match key, e.g. 2026gaalb_qm12. All three sites use the same keys. */
+    matchKey: v.string(),
+    source: v.union(v.literal("statbotics"), v.literal("match13")),
+    redScore: v.number(),
+    blueScore: v.number(),
+    /** 0 to 1. Blue's chance is what is left over. */
+    redWinProb: v.number(),
+    fetchedAt: v.number(),
+  })
+    .index("by_event_source", ["eventId", "source"])
+    .index("by_match", ["matchKey"]),
+
   /**
    * TBA qualification rank for one team at one event. Refreshed with EPA,
    * xP and scores (cron and Admin button); a row is only rewritten when the
@@ -301,6 +397,12 @@ export default defineSchema({
       duringAuto: v.boolean(),
     }),
     drivetrain: v.string(),
+    /** Free text ("L2", "6.75:1"). Optional: reports written before the
+     *  field existed, or where the scout left it blank, have none. */
+    drivetrainGearing: v.optional(v.string()),
+    /** Pounds with bumpers and battery, to one decimal place, 10–200.
+     *  Optional, as drivetrainGearing. */
+    robotWeight: v.optional(v.number()),
     underTrench: v.boolean(),
     overBump: v.boolean(),
     robotNotes: v.string(),
@@ -335,8 +437,10 @@ export default defineSchema({
         v.literal("mk"), v.literal("energizer"), v.literal("duracell"), v.literal("other"),
       ),
       otherType: v.optional(v.string()),
+      /** How many are in good condition (the total, on older reports). */
       quantity: v.optional(v.number()),
-      condition: v.string(),
+      /** Legacy free text: only reports from before it was removed have it. */
+      condition: v.optional(v.string()),
     }))),
   })
     .index("by_event", ["eventId"])

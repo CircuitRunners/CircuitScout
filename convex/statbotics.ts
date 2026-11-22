@@ -7,7 +7,8 @@ import { internal } from "./_generated/api";
 import { activeEvent, requireAdmin, requireTeamAdmin } from "./lib/guards";
 import type { Id } from "./_generated/dataModel";
 
-const BASE = "https://api-statbotics.popcornpenguins.com/v3";
+export const STATBOTICS_BASE = "https://api-statbotics.popcornpenguins.com/v3";
+const BASE = STATBOTICS_BASE;
 
 /**
  * The v3 response has nested EPA objects and the exact shape has moved between

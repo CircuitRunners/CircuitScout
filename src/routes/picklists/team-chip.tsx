@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { PIT_BADGE, type PitStatus } from "@/lib/pit-status";
 import { Button } from "@/components/ui/button";
 import { RankBadge } from "@/components/team-rank";
 
@@ -23,7 +24,7 @@ export function TeamChip({
   entryId,
   teamNumber,
   nickname,
-  pitScouted,
+  pitStatus,
   stats,
   rank,
   draggable,
@@ -36,7 +37,7 @@ export function TeamChip({
   entryId: string;
   teamNumber: number;
   nickname: string;
-  pitScouted: boolean;
+  pitStatus: PitStatus;
   stats: ChipStats | null;
   /** TBA rank, or null when unranked. */
   rank?: number | null;
@@ -90,8 +91,10 @@ export function TeamChip({
           </Button>
         ) : null}
         <RankBadge rank={rank} className="text-[10px]" />
-        <Badge variant={pitScouted ? "secondary" : "outline"} className="shrink-0 text-[10px]">
-          {pitScouted ? "Pit" : "No pit"}
+        <Badge
+          variant={pitStatus === "complete" ? "secondary" : "outline"}
+          className={["shrink-0 text-[10px]", pitStatus === "partial" ? "border-dashed" : ""].join(" ")}>
+          {PIT_BADGE[pitStatus].text}
         </Badge>
       </div>
       {stats && stats.reportCount > 0 ? (

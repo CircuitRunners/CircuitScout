@@ -107,7 +107,7 @@ function AccountSecurity({ email }: { email: string }) {
 
   return (
     <>
-      <Card className="max-w-md">
+      <Card className="w-full max-w-md md:col-start-1">
         <CardHeader>
           <CardTitle>Account</CardTitle>
           <CardDescription>
@@ -235,6 +235,8 @@ function AccountSecurity({ email }: { email: string }) {
   );
 }
 
+import { PracticeCard } from "@/components/practice-card";
+
 export default function ProfilePage() {
   const profile = useQuery(api.profiles.me);
   const email = useQuery(api.account.myEmail);
@@ -293,7 +295,10 @@ export default function ProfilePage() {
       title="My profile"
       description="How you appear on every report you submit."
     >
-      <Card className="max-w-md">
+      {/* Two columns from md up. The last row is 1fr so a tall Practice card
+          does not open a gap between Account and Role. */}
+      <div className="grid items-start gap-6 md:grid-cols-[minmax(0,28rem)_minmax(0,28rem)] md:grid-rows-[auto_auto_1fr]">
+      <Card className="w-full max-w-md md:col-start-1">
         <CardHeader>
           <CardTitle>Name and team</CardTitle>
           <CardDescription>
@@ -340,7 +345,11 @@ export default function ProfilePage() {
 
       {email ? <AccountSecurity email={email} /> : null}
 
-      <Card className="max-w-md">
+      {/* Top of the right column, beside Name and team, on wide screens;
+          under Account (before Role) when narrow. */}
+      <PracticeCard className="w-full max-w-md md:col-start-2 md:row-span-3 md:row-start-1" />
+
+      <Card className="w-full max-w-md md:col-start-1">
         <CardHeader>
           <CardTitle>Role</CardTitle>
           <CardDescription>
@@ -358,6 +367,7 @@ export default function ProfilePage() {
           ) : null}
         </CardContent>
       </Card>
+      </div>
     </PageShell>
   );
 }

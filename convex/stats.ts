@@ -3,6 +3,7 @@ import { query } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { activeEvent , currentTeamNumber } from "./lib/guards";
 import { reportCountsFor } from "./lib/reportCounts";
+import { pitStatus } from "./lib/pitStatus";
 import { EMPTY_SUMMARY, derive, type Summary } from "./lib/summarise";
 import { isAutoWinnerFor, summariesFor, summaryFor } from "./lib/teamSummaries";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -61,7 +62,7 @@ export const compare = query({
       rows.push({
         teamNumber: team.number,
         nickname: team.nickname,
-        pitScouted: pit.some((p) => p.scoutingTeamNumber === myTeam),
+        pitScouted: pit.some((p) => p.scoutingTeamNumber === myTeam && pitStatus(p) === "complete"),
         stats: (await summaryFor(ctx, event._id, team._id)) ?? { ...EMPTY_SUMMARY },
       });
     }
@@ -242,7 +243,8 @@ export const coverage = query({
         reportCountsFor(ctx, event._id),
         ctx.db.query("scoutTallies").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
       ]);
-    const pitScouted = new Set(pit.map((p) => p.teamId));
+    // "Never pit scouted": blank reports do not count; partial ones hold real data.
+    const pitScouted = new Set(pit.filter((p) => pitStatus(p) !== "none").map((p) => p.teamId));
 
     const matchRows = matches
       .map((match) => {

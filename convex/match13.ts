@@ -5,7 +5,8 @@ import { internalAction, internalMutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { activeEvent } from "./lib/guards";
 
-const BASE = "https://actions.match13.com/v1";
+export const MATCH13_BASE = "https://actions.match13.com/v1";
+const BASE = MATCH13_BASE;
 
 /**
  * match13 xP for the caller's active event. The twin of statbotics.forEvent,

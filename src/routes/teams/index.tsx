@@ -210,7 +210,7 @@ export default function TeamsPage() {
               <TeamCard
                 number={team.number}
                 nickname={team.nickname}
-                pitScouted={team.pitScouted}
+                pitStatus={team.pitStatus}
                 reportCount={team.reportCount}
                 tier={team.tier as Tier}
                 attention={attentionByTeam.get(team.number) ?? 0}

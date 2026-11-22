@@ -57,7 +57,8 @@ export const csv = query({
           .collect()
       ).filter((p) => p.scoutingTeamNumber === myTeam);
       return toCsv(
-        ["team", "nickname", "scout", "drivetrain", "turret", "drumFullWidth",
+        ["team", "nickname", "scout", "drivetrain", "drivetrainGearing",
+         "robotWeightLbs", "turret", "drumFullWidth",
          "drumNarrow", "fixedShooter", "kitbot", "otherScoring", "climbLow",
          "climbMid", "climbHigh", "climbAuto", "underTrench", "overBump",
          "robotNotes", "otherNotes"],
@@ -66,7 +67,8 @@ export const csv = query({
           if (!team) return [];
           return [[
             team.number, team.nickname, nameByUser.get(p.scoutId) ?? "",
-            p.drivetrain, p.scoring.turret, p.scoring.drumFullWidth,
+            p.drivetrain, p.drivetrainGearing ?? "", p.robotWeight ?? "",
+            p.scoring.turret, p.scoring.drumFullWidth,
             p.scoring.drumNonFullWidth, p.scoring.fixed, p.scoring.kitbot,
             p.scoring.other ? p.scoring.otherText : "",
             p.climb.low, p.climb.mid, p.climb.high, p.climb.duringAuto,

@@ -17,6 +17,7 @@ export function RatingScale({
   step = 1,
   unit = "",
   values,
+  invalid = false,
 }: {
   label: string;
   value: number | null;
@@ -26,6 +27,8 @@ export function RatingScale({
   step?: number;
   unit?: string;
   values?: ReadonlyArray<number>;
+  /** Outlined in red: required and still not set when the scout tried to submit. */
+  invalid?: boolean;
 }) {
   const useList = values !== undefined && values.length > 0;
 
@@ -60,12 +63,21 @@ export function RatingScale({
   };
 
   return (
-    <div className="space-y-3">
+    <div className={[
+      "space-y-3",
+      // An outline with an offset, so the slider does not move when it appears.
+      invalid ? "outline-destructive rounded-lg outline outline-offset-8" : "",
+    ].join(" ")}>
       <div className="flex items-baseline justify-between">
-        <span className="text-sm font-medium">{label}</span>
+        <span className={["text-sm font-medium", invalid ? "text-destructive" : ""].join(" ")}>
+          {label}
+        </span>
         <span className="text-2xl font-semibold tabular-nums">
           {value === null ? (
-            <span className="text-muted-foreground text-base font-normal">
+            <span className={[
+              "text-base font-normal",
+              invalid ? "text-destructive" : "text-muted-foreground",
+            ].join(" ")}>
               Not set
             </span>
           ) : (

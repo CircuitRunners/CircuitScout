@@ -41,7 +41,7 @@ export default function NotesTeamsPage() {
               <span className="w-14 shrink-0 text-lg font-semibold tabular-nums">{team.number}</span>
               <span className="min-w-0 flex-1 truncate text-sm">{team.nickname}</span>
               <Badge variant={team.pitNoted ? "default" : "outline"}>
-                {team.pitNoted ? "Pit notes" : "No pit notes"}
+                {team.pitNoted ? "Pit" : "No pit"}
               </Badge>
             </button>
           ))}

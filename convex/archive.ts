@@ -1,13 +1,20 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { currentTeamNumber, requireUser } from "./lib/guards";
-import { summarise, type Summary } from "./lib/summarise";
-import type { Doc, Id } from "./_generated/dataModel";
+import {
+  liveCounts, liveTable, seasonOf, snapshotFor, type ArchiveRow,
+} from "./lib/archiveData";
 
 /**
  * Read-only by construction. Every function here takes an explicit event key
  * and none of them can write, so nothing in this file can put scouting data
  * into the wrong competition.
+ *
+ * Deleted events stay listed. Their numbers come from the snapshot saved
+ * right before deletion (or, inside the 24-hour recovery window for an event
+ * deleted before snapshots existed, from the data still present). An event
+ * that is not deleted always shows live data, so a recovered event updates
+ * again.
  */
 
 export const events = query({
@@ -16,38 +23,53 @@ export const events = query({
     await requireUser(ctx);
     const myTeam = await currentTeamNumber(ctx);
 
-    const all = await ctx.db.query("events").collect();
-    const settings = await ctx.db.query("teamSettings").collect();
+    const [all, settings, snapshots] = await Promise.all([
+      ctx.db.query("events").collect(),
+      ctx.db.query("teamSettings").collect(),
+      ctx.db.query("archiveSnapshots").collect(),
+    ]);
+    const snapshotByKey = new Map(snapshots.map((s) => [s.eventKey, s]));
 
     const rows = [];
+    const listed = new Set<string>();
     for (const event of all) {
-      if (event.deletedAt) continue;
-      const teams = await ctx.db
-        .query("teams")
-        .withIndex("by_event", (q) => q.eq("eventId", event._id))
-        .collect();
-      const matches = await ctx.db
-        .query("matches")
-        .withIndex("by_event", (q) => q.eq("eventId", event._id))
-        .collect();
-      const reports = await ctx.db
-        .query("matchReports")
-        .withIndex("by_event", (q) => q.eq("eventId", event._id))
-        .collect();
+      const key = event.tbaEventKey;
+      const snapshot = event.deletedAt ? snapshotByKey.get(key) : undefined;
+      const counts = snapshot ?? await liveCounts(ctx, event._id);
 
-      const activeForTeams = settings
-        .filter((t) => t.activeEventId === event._id)
-        .map((t) => t.teamNumber);
+      const activeForTeams = event.deletedAt
+        ? []
+        : settings.filter((t) => t.activeEventId === event._id).map((t) => t.teamNumber);
 
+      listed.add(key);
       rows.push({
-        eventKey: event.tbaEventKey,
+        eventKey: key,
         name: event.name,
-        season: Number.parseInt(event.tbaEventKey.slice(0, 4), 10),
-        teamCount: teams.length,
-        matchCount: matches.length,
-        reportCount: reports.length,
+        season: seasonOf(key),
+        teamCount: counts.teamCount,
+        matchCount: counts.matchCount,
+        reportCount: counts.reportCount,
         activeForTeams,
         isMine: myTeam !== undefined && activeForTeams.includes(myTeam),
+        deleted: Boolean(event.deletedAt),
+        snapshotAt: snapshot?.takenAt ?? null,
+      });
+    }
+
+    // Purged for good: only the snapshot is left.
+    for (const snapshot of snapshots) {
+      if (listed.has(snapshot.eventKey)) continue;
+      rows.push({
+        eventKey: snapshot.eventKey,
+        name: snapshot.name,
+        season: snapshot.season,
+        teamCount: snapshot.teamCount,
+        matchCount: snapshot.matchCount,
+        reportCount: snapshot.reportCount,
+        activeForTeams: [] as number[],
+        isMine: false,
+        deleted: true,
+        snapshotAt: snapshot.takenAt as number | null,
       });
     }
 
@@ -65,49 +87,43 @@ export const teamTable = query({
       .query("events")
       .withIndex("by_key", (q) => q.eq("tbaEventKey", args.eventKey))
       .unique();
-    if (!event) return null;
 
-    const [teams, matches, reports] = await Promise.all([
-      ctx.db.query("teams").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
-      ctx.db.query("matches").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
-      ctx.db.query("matchReports").withIndex("by_event", (q) => q.eq("eventId", event._id)).collect(),
-    ]);
-
-    const matchById = new Map(matches.map((m) => [m._id, m]));
-    const teamById = new Map(teams.map((t) => [t._id, t]));
-
-    const byTeam = new Map<
-      Id<"teams">,
-      { report: Doc<"matchReports">; isAutoWinner: boolean | null }[]
-    >();
-    for (const report of reports) {
-      const match = matchById.get(report.matchId);
-      const team = teamById.get(report.teamId);
-      let isAutoWinner: boolean | null = null;
-      if (report.autoWinner !== null && match && team) {
-        const onRed = match.redTeamNumbers.includes(team.number);
-        isAutoWinner = report.autoWinner === (onRed ? "red" : "blue");
-      }
-      const list = byTeam.get(report.teamId) ?? [];
-      list.push({ report, isAutoWinner });
-      byTeam.set(report.teamId, list);
+    if (event && !event.deletedAt) {
+      const table = await liveTable(ctx, event);
+      return {
+        eventKey: event.tbaEventKey,
+        name: event.name,
+        matchCount: table.matchCount,
+        rows: table.rows,
+        deleted: false,
+        snapshotAt: null as number | null,
+      };
     }
 
-    const rows: {
-      teamNumber: number;
-      nickname: string;
-      stats: Summary;
-    }[] = teams.map((team) => ({
-      teamNumber: team.number,
-      nickname: team.nickname,
-      stats: summarise(byTeam.get(team._id) ?? []),
-    }));
+    const snapshot = await snapshotFor(ctx, args.eventKey);
+    if (snapshot) {
+      return {
+        eventKey: snapshot.eventKey,
+        name: snapshot.name,
+        matchCount: snapshot.matchCount,
+        rows: JSON.parse(snapshot.rows) as ArchiveRow[],
+        deleted: true,
+        snapshotAt: snapshot.takenAt as number | null,
+      };
+    }
 
-    return {
-      eventKey: event.tbaEventKey,
-      name: event.name,
-      matchCount: matches.length,
-      rows: rows.sort((a, b) => a.teamNumber - b.teamNumber),
-    };
+    // Deleted before snapshots existed and not yet purged: the data is still here.
+    if (event) {
+      const table = await liveTable(ctx, event);
+      return {
+        eventKey: event.tbaEventKey,
+        name: event.name,
+        matchCount: table.matchCount,
+        rows: table.rows,
+        deleted: true,
+        snapshotAt: null as number | null,
+      };
+    }
+    return null;
   },
 });

@@ -8,6 +8,13 @@ import { CompareTable } from "@/components/compare-table";
 import { StatLinks } from "@/components/stat-links";
 import { useRatings } from "@/lib/stat-site";
 import { Badge } from "@/components/ui/badge";
+
+/** "3%", with the ends shown as <1% / >99% rather than a flat 0 or 100. */
+function chance(p: number): string {
+  if (p < 0.01) return "<1%";
+  if (p > 0.99) return ">99%";
+  return `${Math.round(p * 100)}%`;
+}
 import { Button } from "@/components/ui/button";
 import {
   Card, CardContent, CardDescription, CardHeader, CardTitle,
@@ -92,6 +99,10 @@ export default function MatchPreviewPage() {
     api.stats.forMatch,
     Number.isNaN(matchNumber) ? "skip" : { matchNumber },
   );
+  const predictions = useQuery(
+    api.predictions.forMatch,
+    data ? { matchKey: data.tbaMatchKey } : "skip",
+  );
 
   if (Number.isNaN(matchNumber)) {
     return <PageShell title="Match preview" description="Bad URL." />;
@@ -109,11 +120,8 @@ export default function MatchPreviewPage() {
     );
   }
 
-  // EPA or xP, whichever site this team has chosen.
-  const ratingSum = (side: Robot[]) =>
-    side.reduce((sum, r) => sum + (ratings.byTeam.get(r.teamNumber)?.total ?? 0), 0);
-  const ratingCovered = (side: Robot[]) =>
-    side.filter((r) => ratings.byTeam.has(r.teamNumber)).length;
+  // Statbotics or match13, whichever site this team has chosen.
+  const prediction = predictions?.[ratings.site] ?? null;
 
   const redProjected = projected(data.red);
   const blueProjected = projected(data.blue);
@@ -172,37 +180,39 @@ export default function MatchPreviewPage() {
           <CardHeader>
             <CardTitle>Projected · {ratings.metric}</CardTitle>
             <CardDescription>
-              {ratings.siteName} {ratings.metric} summed per alliance. Independent of your scouting,
-              so a wide gap between the two is worth a look rather than a
-              tiebreak.
+              The {ratings.siteName} prediction for this match, from its own {ratings.metric} model.
+              Independent of your scouting, so a wide gap between the two is
+              worth a look rather than a tiebreak.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-6">
-            {ratings.loading ? (
+            {ratings.loading || predictions === undefined ? (
               <p className="text-muted-foreground text-sm">Loading…</p>
-            ) : ratings.byTeam.size === 0 ? (
+            ) : prediction === null ? (
               <p className="text-muted-foreground text-sm">
-                No {ratings.metric} yet — an admin can pull it from the Admin page.
+                No {ratings.siteName} prediction for this match yet — an admin can
+                pull it from the Admin page.
               </p>
             ) : (
               <>
                 <div>
                   <p className="text-xs text-red-600 dark:text-red-400">Red</p>
                   <p className="text-3xl font-semibold tabular-nums">
-                    {ratingSum(data.red).toFixed(0)}
+                    {prediction.redScore.toFixed(0)}
+                  </p>
+                  <p className="text-muted-foreground text-xs tabular-nums">
+                    {chance(prediction.redWinProb)} to win
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-blue-600 dark:text-blue-400">Blue</p>
                   <p className="text-3xl font-semibold tabular-nums">
-                    {ratingSum(data.blue).toFixed(0)}
+                    {prediction.blueScore.toFixed(0)}
+                  </p>
+                  <p className="text-muted-foreground text-xs tabular-nums">
+                    {chance(1 - prediction.redWinProb)} to win
                   </p>
                 </div>
-                {ratingCovered(data.red) + ratingCovered(data.blue) < 6 ? (
-                  <Badge variant="outline">
-                    Only {ratingCovered(data.red) + ratingCovered(data.blue)} of 6 have {ratings.metric}
-                  </Badge>
-                ) : null}
               </>
             )}
           </CardContent>

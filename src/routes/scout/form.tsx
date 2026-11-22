@@ -111,6 +111,9 @@ export default function MatchFormPage() {
   const [saving, setSaving] = useState(false);
   const [override, setOverride] = useState(false);
   const [earlyAck, setEarlyAck] = useState(false);
+  // Missing fields are outlined once someone tries to submit, not while they
+  // are still working through the match.
+  const [showErrors, setShowErrors] = useState(false);
   // Editing hydrates once. Convex queries are live, so re-hydrating would
   // stamp on the correction in progress every time anything else changed.
   useEffect(() => {
@@ -192,12 +195,14 @@ export default function MatchFormPage() {
           : "")
       : null;
 
-  const goToTeleop = () => {
-    setPeriod("teleop");
-    // The winner card sits at the bottom of Auto; land at the top of Teleop.
+  const goTo = (next: typeof period) => {
+    setPeriod(next);
+    // The switch buttons sit at the bottom of a tab; land at the top of the next.
     document.getElementById("match-form-tabs")
       ?.scrollIntoView({ block: "start", behavior: "smooth" });
   };
+  const goToTeleop = () => goTo("teleop");
+  const goToConclusion = () => goTo("conclusion");
 
   const missing: string[] = [];
   if (start === null) missing.push("start position");
@@ -207,6 +212,19 @@ export default function MatchFormPage() {
   if (autoWinner === null) missing.push("auto winner");
   if (finalNotes.trim() === "") missing.push("final notes");
   if (editId && editReason.trim() === "") missing.push("a reason for this edit");
+
+  // Which fields to outline, and which tabs hold them.
+  const bad = {
+    start: showErrors && start === null,
+    autoWinner: showErrors && autoWinner === null,
+    driver: showErrors && driver === null,
+    defense: showErrors && defense === null,
+    accuracy: showErrors && accuracy === null,
+    finalNotes: showErrors && finalNotes.trim() === "",
+    editReason: showErrors && Boolean(editId) && editReason.trim() === "",
+  };
+  const autoMissing = bad.start || bad.autoWinner;
+  const conclusionMissing = bad.driver || bad.defense || bad.accuracy || bad.finalNotes;
 
   // A report finished before the buzzer cannot have seen the endgame.
   const beforeMatchEnd = !editId && startedAt !== null && phase !== "over";
@@ -223,6 +241,18 @@ export default function MatchFormPage() {
 
   const save = async () => {
     if (!data?.match || !data.team) return;
+    if (missing.length > 0) {
+      setShowErrors(true);
+      // Open the first tab with a gap; the edit reason sits below the tabs.
+      if (start === null || autoWinner === null) goTo("auto");
+      else if (driver === null || defense === null || accuracy === null || finalNotes.trim() === "") {
+        goTo("conclusion");
+      }
+      toast.error("Some required fields are empty", {
+        description: "What needs filling in is outlined in red.",
+      });
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -347,19 +377,30 @@ export default function MatchFormPage() {
 
       <Tabs value={period} onValueChange={(v) => setPeriod(v as typeof period)}>
         <TabsList id="match-form-tabs" className="w-full scroll-mt-4">
-          <TabsTrigger value="auto" className="flex-1">Auto</TabsTrigger>
+          <TabsTrigger value="auto" className="flex-1">
+            Auto
+            {autoMissing ? <span aria-hidden className="bg-destructive ml-1.5 size-1.5 rounded-full" /> : null}
+          </TabsTrigger>
           <TabsTrigger value="teleop" className="flex-1">Teleop</TabsTrigger>
-          <TabsTrigger value="conclusion" className="flex-1">Conclusion</TabsTrigger>
+          <TabsTrigger value="conclusion" className="flex-1">
+            Conclusion
+            {conclusionMissing ? <span aria-hidden className="bg-destructive ml-1.5 size-1.5 rounded-full" /> : null}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="auto" className="space-y-4 pt-4">
-          <AutoPathEditor
-            alliance={data.alliance === "red" ? "red" : "blue"}
-            start={start}
-            onStartChange={setStart}
-            steps={steps}
-            onStepsChange={setSteps}
-          />
+          <div className={bad.start ? "ring-destructive space-y-2 rounded-xl ring-2" : ""}>
+            <AutoPathEditor
+              alliance={data.alliance === "red" ? "red" : "blue"}
+              start={start}
+              onStartChange={setStart}
+              steps={steps}
+              onStepsChange={setSteps}
+            />
+            {bad.start ? (
+              <p className="text-destructive px-4 pb-3 text-xs">Pick where the robot started.</p>
+            ) : null}
+          </div>
 
           <Card>
             <CardHeader>
@@ -375,7 +416,7 @@ export default function MatchFormPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={bad.autoWinner ? "ring-destructive ring-2" : ""}>
             <CardHeader><CardTitle>Which alliance won auto?</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <p className="text-muted-foreground text-sm">
@@ -391,6 +432,9 @@ export default function MatchFormPage() {
                 value={autoWinner}
                 onChange={setAutoWinner}
               />
+              {bad.autoWinner ? (
+                <p className="text-destructive text-xs">Pick the alliance that scored more auto fuel.</p>
+              ) : null}
               {autoWinner !== null ? (
                 <div className="flex gap-4 text-sm">
                   <span>Counted: <strong className="tabular-nums">{counted}</strong></span>
@@ -424,6 +468,10 @@ export default function MatchFormPage() {
                 checked={defended} onChange={setDefended} />
               <Textarea placeholder="Teleop notes" rows={2}
                 value={teleopNotes} onChange={(e) => setTeleopNotes(e.target.value)} />
+              <Button variant="outline" className="h-12 w-full" onClick={goToConclusion}>
+                Switch to Conclusion
+                <ArrowRight className="size-4" />
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -451,12 +499,15 @@ export default function MatchFormPage() {
       <Card>
         <CardHeader><CardTitle>Ratings</CardTitle></CardHeader>
         <CardContent className="space-y-6">
-          <RatingScale label="Driver" value={driver} onChange={setDriver} />
-          <RatingScale label="Defense" value={defense} onChange={setDefense} />
+          <RatingScale label="Driver" value={driver} onChange={setDriver}
+            invalid={bad.driver} />
+          <RatingScale label="Defense" value={defense} onChange={setDefense}
+            invalid={bad.defense} />
           <RatingScale
             label="Shooting accuracy"
             value={accuracy}
             onChange={setAccuracy}
+            invalid={bad.accuracy}
             min={0}
             max={100}
             step={5}
@@ -486,7 +537,7 @@ export default function MatchFormPage() {
         </CardContent>
       </Card>
 
-          <Card>
+          <Card className={bad.finalNotes ? "ring-destructive ring-2" : ""}>
             <CardHeader><CardTitle>Final notes</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               <p className="text-muted-foreground text-sm">
@@ -497,8 +548,12 @@ export default function MatchFormPage() {
                 placeholder="Overall impression of this robot"
                 rows={4}
                 value={finalNotes}
+                aria-invalid={bad.finalNotes || undefined}
                 onChange={(e) => setFinalNotes(e.target.value)}
               />
+              {bad.finalNotes ? (
+                <p className="text-destructive text-xs">Final notes are required.</p>
+              ) : null}
             </CardContent>
           </Card>
         </TabsContent>
@@ -553,6 +608,7 @@ export default function MatchFormPage() {
             <Input
               placeholder="Reason (required)"
               value={editReason}
+              aria-invalid={bad.editReason || undefined}
               onChange={(e) => setEditReason(e.target.value)}
             />
           </CardContent>
@@ -569,7 +625,6 @@ export default function MatchFormPage() {
         className="h-14 w-full text-base"
         disabled={
           saving ||
-          missing.length > 0 ||
           (suspicious && !override) ||
           (beforeMatchEnd && !earlyAck)
         }

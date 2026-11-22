@@ -7,11 +7,13 @@ import { PageShell } from "@/routes/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { PIT_STATUS_LABELS } from "@/lib/pit-status";
 
-type Filter = "all" | "todo" | "done";
+type Filter = "all" | "todo" | "partial" | "done";
 
 const FILTERS: ReadonlyArray<{ value: Filter; label: string }> = [
   { value: "todo", label: "Not scouted" },
+  { value: "partial", label: "Partially scouted" },
   { value: "done", label: "Scouted" },
   { value: "all", label: "All" },
 ];
@@ -26,8 +28,9 @@ export default function PitLandingPage() {
     if (!teams) return [];
     const needle = search.trim().toLowerCase();
     return teams.filter((team) => {
-      if (filter === "todo" && team.pitScouted) return false;
-      if (filter === "done" && !team.pitScouted) return false;
+      if (filter === "todo" && team.pitStatus !== "none") return false;
+      if (filter === "partial" && team.pitStatus !== "partial") return false;
+      if (filter === "done" && team.pitStatus !== "complete") return false;
       if (needle === "") return true;
       return (
         String(team.number).includes(needle) ||
@@ -36,7 +39,8 @@ export default function PitLandingPage() {
     });
   }, [teams, filter, search]);
 
-  const done = teams?.filter((t) => t.pitScouted).length ?? 0;
+  const done = teams?.filter((t) => t.pitStatus === "complete").length ?? 0;
+  const partial = teams?.filter((t) => t.pitStatus === "partial").length ?? 0;
   const total = teams?.length ?? 0;
 
   return (
@@ -45,7 +49,7 @@ export default function PitLandingPage() {
       description={
         total === 0
           ? "No teams yet. An admin needs to import an event."
-          : `${done} of ${total} teams scouted. Tap a team to scout it.`
+          : `${done} of ${total} teams scouted${partial > 0 ? `, ${partial} partially` : ""}. Tap a team to scout it.`
       }
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -73,7 +77,9 @@ export default function PitLandingPage() {
       ) : shown.length === 0 ? (
         <p className="text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm">
           {filter === "todo" && total > 0
-            ? "Every team has been scouted."
+            ? partial > 0
+              ? "Every team has been visited. Partially scouted ones still need finishing."
+              : "Every team has been scouted."
             : "Nothing matches."}
         </p>
       ) : (
@@ -84,9 +90,11 @@ export default function PitLandingPage() {
               onClick={() => void navigate(`/pit/${team.number}`)}
               className={[
                 "flex min-h-24 flex-col justify-between rounded-lg border p-3 text-left transition-colors",
-                team.pitScouted
+                team.pitStatus === "complete"
                   ? "bg-primary/5 border-primary/40"
-                  : "hover:bg-accent/50",
+                  : team.pitStatus === "partial"
+                    ? "border-dashed border-primary/40 hover:bg-accent/50"
+                    : "hover:bg-accent/50",
               ].join(" ")}
             >
               <span className="text-2xl font-semibold tabular-nums">
@@ -96,10 +104,13 @@ export default function PitLandingPage() {
                 {team.nickname}
               </span>
               <Badge
-                variant={team.pitScouted ? "default" : "outline"}
+                variant={
+                  team.pitStatus === "complete" ? "default"
+                    : team.pitStatus === "partial" ? "secondary" : "outline"
+                }
                 className="mt-1 w-fit"
               >
-                {team.pitScouted ? "Scouted" : "Not scouted"}
+                {PIT_STATUS_LABELS[team.pitStatus]}
               </Badge>
             </button>
           ))}

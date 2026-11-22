@@ -1,10 +1,11 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import {
   activeEvent, currentProfile, managesTeam, requireTeamAdmin, requireUser, canEditList, canReadList,
 } from "./lib/guards";
 import type { Doc, Id } from "./_generated/dataModel";
+import { refuseInPractice } from "./lib/practice";
 
 export const listMine = query({
   args: {},
@@ -293,6 +294,7 @@ export const setSubmitted = mutation({
   args: { listId: v.id("pickLists") },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
+    await refuseInPractice(ctx, "Pick lists cannot be submitted in practice mode.");
     const event = await activeEvent(ctx);
     if (!event) throw new Error("No active event.");
 
@@ -321,8 +323,12 @@ export const setSubmitted = mutation({
       missing.push(team ? String(team.number) : "a team");
     }
     if (missing.length > 0) {
-      throw new Error(
-        `Every first pick and do-not-pick needs a note before this list can be submitted. Missing: ${missing.join(", ")}.`,
+      // A ConvexError, so the message reaches the scout in production too;
+      // a plain Error is replaced by "Server Error" there.
+      throw new ConvexError(
+        missing.length === 1
+          ? `${missing[0]} missing comment`
+          : `${missing.length} teams missing comments`,
       );
     }
 

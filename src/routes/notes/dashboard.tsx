@@ -125,7 +125,7 @@ export default function NotesDashboardPage() {
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Metric label="Pit notes" value={`${pitNoted}/${teams}`}
+        <Metric label="Pit scouted" value={`${pitNoted}/${teams}`}
           hint={teams - pitNoted > 0 ? `${teams - pitNoted} still to do` : "Complete"} />
         <Metric label="Match notes" value={String(progress?.matchNotes ?? 0)} />
         <Metric label="Teams with no match notes" value={String(missing.length)} />

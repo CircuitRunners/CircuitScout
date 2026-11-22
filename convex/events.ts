@@ -11,6 +11,7 @@ import { reportCountsFor } from "./lib/reportCounts";
 import { refreshTeamSummary } from "./lib/teamSummaries";
 import { refreshMatchTally, refreshScoutTally } from "./lib/coverage";
 import type { MutationCtx } from "./_generated/server";
+import { dropSnapshot, ensureSnapshot, takeSnapshot } from "./lib/archiveSnapshot";
 
 export const active = query({
   args: {},
@@ -409,6 +410,9 @@ export const remove = mutation({
       }
     }
 
+    // Keeps it in Past Events.
+    await takeSnapshot(ctx, event);
+
     const matches = await ctx.db
       .query("matches")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
@@ -500,6 +504,13 @@ async function deleteRatings(ctx: MutationCtx, eventId: Id<"events">) {
     .withIndex("by_event", (q) => q.eq("eventId", eventId))
     .collect();
   for (const row of ranks) await ctx.db.delete(row._id);
+  for (const s of ["statbotics", "match13"] as const) {
+    const predictions = await ctx.db
+      .query("matchPredictions")
+      .withIndex("by_event_source", (q) => q.eq("eventId", eventId).eq("source", s))
+      .collect();
+    for (const row of predictions) await ctx.db.delete(row._id);
+  }
 }
 
 /** Notes-only scouting for one event. Purged with everything else. */
@@ -519,6 +530,9 @@ async function deleteNotes(ctx: MutationCtx, eventId: Id<"events">) {
 /** Shared by the immediate purge and the scheduled one. */
 async function purgeEventData(ctx: MutationCtx, eventId: Id<"events">) {
   const args = { eventId };
+  // Past Events keeps showing it after the data is gone.
+  const event = await ctx.db.get(eventId);
+  if (event) await ensureSnapshot(ctx, event);
   const counts = { matchReports: 0, pitReports: 0, entries: 0, lists: 0, matches: 0, teams: 0 };
 
     const reports = await ctx.db
@@ -627,6 +641,8 @@ export const softDelete = mutation({
     if (args.confirmKey.trim() !== event.tbaEventKey) {
       throw new Error("The event key does not match.");
     }
+    // Past Events shows this from now on, while the event itself is hidden.
+    await takeSnapshot(ctx, event);
     await ctx.db.patch(args.eventId, {
       deletedAt: Date.now(),
       deletedBy: me.userId,
@@ -641,6 +657,8 @@ export const recover = mutation({
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("That event is gone for good.");
     await ctx.db.patch(args.eventId, { deletedAt: null, deletedBy: null });
+    // Back to live data in Past Events, not the frozen copy.
+    await dropSnapshot(ctx, event.tbaEventKey);
     return { name: event.name };
   },
 });

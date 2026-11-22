@@ -1,11 +1,16 @@
 import { Outlet } from "react-router";
 import { AppNav } from "@/components/app-nav";
+import { PracticeBanner } from "@/components/practice-banner";
 import { SeasonProvider } from "@/components/season-provider";
 
 export function AppLayout() {
   return (
     <div className="flex min-h-svh flex-col">
-      <AppNav />
+      {/* Sticky together, so the banner stays on screen with the nav. */}
+      <div className="sticky top-0 z-40">
+        <PracticeBanner />
+        <AppNav />
+      </div>
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
         <SeasonProvider>
           <Outlet />

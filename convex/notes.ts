@@ -2,10 +2,17 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { isPracticing, savePractice } from "./lib/practice";
 import {
   activeEvent, currentProfile, currentTeamNumber, managesTeam, requireTeamAdmin, requireUser,
 } from "./lib/guards";
 import { stationIndex, type Station } from "./lib/types";
+import {
+  genericPitIsBlank, genericPitMissing, genericPitStatus, GENERIC_PIT_LABELS,
+  type GenericPitStatus,
+} from "./lib/genericPit";
+import { MAX_OTHER_SPARES, batteryText, spareText } from "./lib/spares";
+import { matchSections } from "./lib/genericMatch";
 
 /**
  * Notes-only scouting: what the app offers for a season it has no forms for.
@@ -68,6 +75,9 @@ export const teams = query({
     const noted = new Set(
       pit.filter((p) => p.scoutingTeamNumber === myTeam).map((p) => p.teamId),
     );
+    const statusByTeam = new Map(
+      pit.filter((p) => p.scoutingTeamNumber === myTeam).map((p) => [p.teamId, genericPitStatus(p)]),
+    );
     return teams
       .sort((a, b) => a.number - b.number)
       .map((t) => ({
@@ -75,6 +85,7 @@ export const teams = query({
         number: t.number,
         nickname: t.nickname,
         pitNoted: noted.has(t._id),
+        pitStatus: statusByTeam.get(t._id) ?? ("none" as GenericPitStatus),
       }));
   },
 });
@@ -88,21 +99,32 @@ export const pitNote = query({
     const team = await teamByNumber(ctx, event._id, args.teamNumber);
     if (!team) return null;
     const myTeam = await currentTeamNumber(ctx);
-    const row = (
+    // Practice starts from a blank form, not the team's real report.
+    const row = (await isPracticing(ctx)) ? null : ((
       await ctx.db
         .query("pitNotes")
         .withIndex("by_event_team", (q) => q.eq("eventId", event._id).eq("teamId", team._id))
         .collect()
-    ).find((p) => p.scoutingTeamNumber === myTeam) ?? null;
+    ).find((p) => p.scoutingTeamNumber === myTeam) ?? null);
     const names = row ? await namesByUser(ctx) : null;
     return {
       teamNumber: team.number,
       nickname: team.nickname,
+      photoUrl: row?.photoId ? await ctx.storage.getUrl(row.photoId) : null,
       note: row
         ? {
             notes: row.notes,
             updatedAt: row.updatedAt,
             scoutName: names?.get(row.scoutId) ?? "Unknown scout",
+            scoringText: row.scoringText ?? "",
+            drivetrain: row.drivetrain ?? "",
+            drivetrainGearing: row.drivetrainGearing ?? "",
+            robotWeight: row.robotWeight ?? null,
+            spares: row.spares ?? [],
+            batteries: row.batteries ?? [],
+            otherNotes: row.otherNotes ?? "",
+            status: genericPitStatus(row),
+            missing: genericPitMissing(row),
           }
         : null,
     };
@@ -113,6 +135,11 @@ export const savePit = mutation({
   args: { teamNumber: v.number(), notes: v.string() },
   handler: async (ctx, args) => {
     const scoutId = await requireUser(ctx);
+    if (await isPracticing(ctx)) {
+      return await savePractice(ctx, {
+        kind: "pitNote", teamNumber: args.teamNumber, matchNumber: null, payload: { notes: args.notes },
+      });
+    }
     const event = await activeEvent(ctx);
     if (!event) throw new Error("No active event.");
     const scoutingTeamNumber = await currentTeamNumber(ctx);
@@ -139,6 +166,129 @@ export const savePit = mutation({
   },
 });
 
+const genericSpare = v.object({
+  part: v.union(v.literal("swerve"), v.literal("other")),
+  quantity: v.optional(v.number()),
+  specify: v.string(),
+});
+const genericBattery = v.object({
+  type: v.union(v.literal("mk"), v.literal("energizer"), v.literal("duracell"), v.literal("other")),
+  otherType: v.optional(v.string()),
+  quantity: v.optional(v.number()),
+});
+
+function count(n: number | undefined, what: string): number | undefined {
+  if (n === undefined) return undefined;
+  if (!Number.isInteger(n) || n < 1 || n > 999) throw new Error(`${what} must be whole numbers from 1 to 999.`);
+  return n;
+}
+function text(s: string, max: number, what: string): string {
+  const t = s.trim();
+  if (t.length > max) throw new Error(`${what} is limited to ${max} characters.`);
+  return t;
+}
+
+/**
+ * The pit form for seasons without their own forms. One report per team per
+ * scouting team, like 2026: a second scout from the same team updates it.
+ */
+export const savePitReport = mutation({
+  args: {
+    teamNumber: v.number(),
+    scoringText: v.string(),
+    drivetrain: v.string(),
+    drivetrainGearing: v.string(),
+    robotWeight: v.union(v.number(), v.null()),
+    spares: v.array(genericSpare),
+    batteries: v.array(genericBattery),
+    photoId: v.union(v.id("_storage"), v.null()),
+    notes: v.string(),
+    otherNotes: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const scoutId = await requireUser(ctx);
+    const event = await activeEvent(ctx);
+    if (!event) throw new Error("No active event.");
+    const scoutingTeamNumber = await currentTeamNumber(ctx);
+    if (scoutingTeamNumber === undefined) {
+      throw new Error("Set your team number on your profile first.");
+    }
+    const team = await teamByNumber(ctx, event._id, args.teamNumber);
+    if (!team) throw new Error("That team is not part of the active event.");
+
+    // Checked here as well as in the form: a stale or edited client cannot skip it.
+    let others = 0;
+    let swerve = 0;
+    const spares = args.spares.map((s) => {
+      if (s.part === "other" && ++others > MAX_OTHER_SPARES) {
+        throw new Error(`List at most ${MAX_OTHER_SPARES} Other spares.`);
+      }
+      if (s.part === "swerve" && ++swerve > 1) throw new Error("Swerve modules can only be listed once.");
+      const quantity = count(s.quantity, "Spare quantities");
+      const specify = text(s.specify, 200, "Spare details");
+      if (specify === "") throw new Error("Say what each spare is.");
+      return quantity === undefined ? { part: s.part, specify } : { part: s.part, quantity, specify };
+    });
+    if (args.batteries.length > 20) throw new Error("List at most 20 battery types.");
+    const batteries = args.batteries.map((b) => {
+      if (b.quantity === undefined) throw new Error("Say how many of each battery are in good condition.");
+      const quantity = count(b.quantity, "Battery counts");
+      if (b.type !== "other") return { type: b.type, quantity };
+      const otherType = text(b.otherType ?? "", 50, "A battery brand");
+      if (otherType === "") throw new Error("Say which brand each Other battery is.");
+      return { type: b.type, otherType, quantity };
+    });
+    let robotWeight: number | undefined;
+    if (args.robotWeight !== null) {
+      if (!Number.isFinite(args.robotWeight) || args.robotWeight < 10 || args.robotWeight > 200) {
+        throw new Error("Robot weight must be between 10 and 200 lbs.");
+      }
+      robotWeight = Math.round(args.robotWeight * 10) / 10;
+    }
+    const fields = {
+      scoringText: text(args.scoringText, 2000, "Scoring capability"),
+      drivetrain: text(args.drivetrain, 200, "Drivetrain"),
+      drivetrainGearing: text(args.drivetrainGearing, 100, "Drivetrain gearing"),
+      robotWeight,
+      spares,
+      batteries,
+      notes: text(args.notes, MAX_NOTE, "Robot notes"),
+      otherNotes: text(args.otherNotes, MAX_NOTE, "Other notes"),
+    };
+
+    if (await isPracticing(ctx)) {
+      // A practice photo is not kept.
+      if (args.photoId) await ctx.storage.delete(args.photoId);
+      return await savePractice(ctx, {
+        kind: "pitNote", teamNumber: team.number, matchNumber: null, payload: fields,
+      });
+    }
+
+    const existing = (
+      await ctx.db
+        .query("pitNotes")
+        .withIndex("by_event_team", (q) => q.eq("eventId", event._id).eq("teamId", team._id))
+        .collect()
+    ).find((p) => p.scoutingTeamNumber === scoutingTeamNumber);
+
+    const row = {
+      ...fields,
+      // Keep the old photo when this save did not include a new one.
+      photoId: args.photoId ?? existing?.photoId ?? null,
+      scoutId,
+      scoutingTeamNumber,
+      updatedAt: Date.now(),
+    };
+    if (genericPitIsBlank(row)) throw new Error("Nothing is filled in, so there is nothing to save.");
+
+    if (existing) {
+      await ctx.db.patch(existing._id, row);
+      return existing._id;
+    }
+    return await ctx.db.insert("pitNotes", { eventId: event._id, teamId: team._id, ...row });
+  },
+});
+
 // ─── Match ─────────────────────────────────────────────────────────────────
 
 /** Your own note on one robot in one match, if you wrote one. */
@@ -154,18 +304,34 @@ export const matchNote = query({
     if (alliance === null) return null;
     const team = await teamByNumber(ctx, event._id, args.teamNumber);
     if (!team) return null;
-    const mine = (
+    // Practice starts from a blank form, not the scout's real report.
+    const mine = (await isPracticing(ctx)) ? null : ((
       await ctx.db
         .query("matchNotes")
         .withIndex("by_match", (q) => q.eq("matchId", match._id))
         .collect()
-    ).find((n) => n.teamId === team._id && n.scoutId === userId) ?? null;
+    ).find((n) => n.teamId === team._id && n.scoutId === userId) ?? null);
     return {
       matchNumber: match.matchNumber,
       teamNumber: team.number,
       nickname: team.nickname,
       alliance,
       notes: mine?.notes ?? null,
+      report: mine
+        ? {
+            autoPath: mine.autoPath ?? "",
+            autoScoring: mine.autoScoring ?? "",
+            teleopScoring: mine.teleopScoring ?? "",
+            endgame: mine.endgame ?? "",
+            driver: mine.driver ?? null,
+            defense: mine.defense ?? null,
+            broke: mine.broke ?? false,
+            brokeNotes: mine.brokeNotes ?? "",
+            inconsistent: mine.inconsistent ?? false,
+            inconsistentNotes: mine.inconsistentNotes ?? "",
+            notes: mine.notes,
+          }
+        : null,
     };
   },
 });
@@ -174,6 +340,12 @@ export const saveMatch = mutation({
   args: { matchNumber: v.number(), teamNumber: v.number(), notes: v.string() },
   handler: async (ctx, args) => {
     const scoutId = await requireUser(ctx);
+    if (await isPracticing(ctx)) {
+      return await savePractice(ctx, {
+        kind: "matchNote", teamNumber: args.teamNumber, matchNumber: args.matchNumber,
+        payload: { notes: args.notes },
+      });
+    }
     const event = await activeEvent(ctx);
     if (!event) throw new Error("No active event.");
     const scoutingTeamNumber = await currentTeamNumber(ctx);
@@ -208,6 +380,93 @@ export const saveMatch = mutation({
       scoutId,
       scoutingTeamNumber,
       notes,
+      submittedAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+/**
+ * The match form for seasons without their own forms. One report per scout
+ * per robot per match; saving again replaces it.
+ */
+export const saveMatchReport = mutation({
+  args: {
+    matchNumber: v.number(),
+    teamNumber: v.number(),
+    autoPath: v.string(),
+    autoScoring: v.string(),
+    teleopScoring: v.string(),
+    endgame: v.string(),
+    driver: v.number(),
+    defense: v.number(),
+    broke: v.boolean(),
+    brokeNotes: v.string(),
+    inconsistent: v.boolean(),
+    inconsistentNotes: v.string(),
+    notes: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const scoutId = await requireUser(ctx);
+    const event = await activeEvent(ctx);
+    if (!event) throw new Error("No active event.");
+    const scoutingTeamNumber = await currentTeamNumber(ctx);
+    if (scoutingTeamNumber === undefined) {
+      throw new Error("Set your team number on your profile first.");
+    }
+    const match = await matchByNumber(ctx, event._id, args.matchNumber);
+    if (!match) throw new Error("That match is not in the schedule.");
+    if (allianceOf(match, args.teamNumber) === null) {
+      throw new Error(`Team ${args.teamNumber} is not in Qual ${args.matchNumber}.`);
+    }
+    const team = await teamByNumber(ctx, event._id, args.teamNumber);
+    if (!team) throw new Error("That team is not part of the active event.");
+
+    const rating = (n: number, what: string) => {
+      if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error(`${what} rating must be from 1 to 10.`);
+      return n;
+    };
+    const notes = args.notes.trim();
+    if (notes === "") throw new Error("Final notes are required.");
+    const fields = {
+      autoPath: text(args.autoPath, 2000, "Auto path"),
+      autoScoring: text(args.autoScoring, 2000, "Auto scoring"),
+      teleopScoring: text(args.teleopScoring, 2000, "Teleop scoring"),
+      endgame: text(args.endgame, 2000, "Endgame"),
+      driver: rating(args.driver, "Driver"),
+      defense: rating(args.defense, "Defense"),
+      broke: args.broke,
+      brokeNotes: args.broke ? text(args.brokeNotes, 500, "What happened") : "",
+      inconsistent: args.inconsistent,
+      inconsistentNotes: args.inconsistent ? text(args.inconsistentNotes, 500, "In what way") : "",
+      notes: text(notes, MAX_NOTE, "Final notes"),
+    };
+
+    if (await isPracticing(ctx)) {
+      return await savePractice(ctx, {
+        kind: "matchNote", teamNumber: team.number, matchNumber: match.matchNumber, payload: fields,
+      });
+    }
+
+    const existing = (
+      await ctx.db
+        .query("matchNotes")
+        .withIndex("by_match", (q) => q.eq("matchId", match._id))
+        .collect()
+    ).find((n) => n.teamId === team._id && n.scoutId === scoutId);
+
+    const now = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, { ...fields, scoutingTeamNumber, updatedAt: now });
+      return existing._id;
+    }
+    return await ctx.db.insert("matchNotes", {
+      eventId: event._id,
+      matchId: match._id,
+      teamId: team._id,
+      scoutId,
+      scoutingTeamNumber,
+      ...fields,
       submittedAt: now,
       updatedAt: now,
     });
@@ -447,7 +706,21 @@ export const forTeam = query({
         country: team.country,
       },
       pit: pit
-        ? { notes: pit.notes, updatedAt: pit.updatedAt, scoutName: names.get(pit.scoutId) ?? "Unknown scout" }
+        ? {
+            notes: pit.notes,
+            updatedAt: pit.updatedAt,
+            scoutName: names.get(pit.scoutId) ?? "Unknown scout",
+            scoringText: pit.scoringText ?? "",
+            drivetrain: pit.drivetrain ?? "",
+            drivetrainGearing: pit.drivetrainGearing ?? "",
+            robotWeight: pit.robotWeight ?? null,
+            spares: (pit.spares ?? []).map(spareText),
+            batteries: (pit.batteries ?? []).map(batteryText),
+            otherNotes: pit.otherNotes ?? "",
+            photoUrl: pit.photoId ? await ctx.storage.getUrl(pit.photoId) : null,
+            status: genericPitStatus(pit),
+            missing: genericPitMissing(pit),
+          }
         : null,
       matches: notes
         .map((n) => ({
@@ -455,6 +728,7 @@ export const forTeam = query({
           matchNumber: matchNumberById.get(n.matchId) ?? null,
           scoutName: names.get(n.scoutId) ?? "Unknown scout",
           notes: n.notes,
+          sections: matchSections(n),
           updatedAt: n.updatedAt,
         }))
         .sort((a, b) => (a.matchNumber ?? 0) - (b.matchNumber ?? 0) || a.updatedAt - b.updatedAt),
@@ -490,6 +764,7 @@ export const forMatch = query({
                   id: n._id,
                   scoutName: names.get(n.scoutId) ?? "Unknown scout",
                   notes: n.notes,
+                  sections: matchSections(n),
                 }))
             : [],
         };
@@ -586,7 +861,15 @@ export const forExport = query({
           scoutingTeam: p.scoutingTeamNumber,
           scout: names.get(p.scoutId) ?? "",
           updatedAt: stamp(p.updatedAt),
+          status: GENERIC_PIT_LABELS[genericPitStatus(p)],
+          scoring: p.scoringText ?? "",
+          drivetrain: p.drivetrain ?? "",
+          drivetrainGearing: p.drivetrainGearing ?? "",
+          robotWeightLbs: p.robotWeight ?? "",
+          spares: (p.spares ?? []).map(spareText).join("; "),
+          batteriesInGoodCondition: (p.batteries ?? []).map(batteryText).join("; "),
           notes: p.notes,
+          otherNotes: p.otherNotes ?? "",
         }))
         .sort((a, b) => Number(a.team) - Number(b.team)),
       matches: match
@@ -600,7 +883,15 @@ export const forExport = query({
             scoutingTeam: n.scoutingTeamNumber,
             scout: names.get(n.scoutId) ?? "",
             updatedAt: stamp(n.updatedAt),
-            notes: n.notes,
+            autoPath: n.autoPath ?? "",
+            autoScoring: n.autoScoring ?? "",
+            teleopScoring: n.teleopScoring ?? "",
+            endgame: n.endgame ?? "",
+            driver: n.driver ?? "",
+            defense: n.defense ?? "",
+            broke: n.broke ? (n.brokeNotes || "yes") : "",
+            inconsistent: n.inconsistent ? (n.inconsistentNotes || "yes") : "",
+            finalNotes: n.notes,
           };
         })
         .sort((a, b) => Number(a.match) - Number(b.match) || Number(a.team) - Number(b.team)),

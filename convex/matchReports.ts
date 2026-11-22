@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { activeEvent, requireUser } from "./lib/guards";
 import { mine as myPitReport } from "./pit";
+import { isPracticing, refuseInPractice, savePractice } from "./lib/practice";
 import { MAX_AUTO_CYCLES } from "./lib/scoring";
 import { bumpReportCount } from "./lib/reportCounts";
 import { refreshTeamSummary } from "./lib/teamSummaries";
@@ -121,7 +122,11 @@ export const forMatchAndTeam = query({
         .collect()
     ).filter((r) => r.teamId === team._id);
 
-    const myReport = existing.find((r) => r.scoutId === userId) ?? null;
+    // In practice mode a robot can be practised again, even one already
+    // reported for real; the real report is not touched either way.
+    const myReport = (await isPracticing(ctx))
+      ? null
+      : (existing.find((r) => r.scoutId === userId) ?? null);
     const onRed = match.redTeamNumbers.includes(team.number);
 
     // This scouting team's own pit report, same as the pit page shows. null
@@ -218,6 +223,15 @@ export const submit = mutation({
       throw new Error("Nothing can follow an L1 climb.");
     }
 
+    // Practice: same checks as above, then saved for the scout only.
+    if (await isPracticing(ctx)) {
+      const [match, team] = await Promise.all([ctx.db.get(args.matchId), ctx.db.get(args.teamId)]);
+      if (!match || !team) throw new Error("That match or team is not at the active event.");
+      return await savePractice(ctx, {
+        kind: "match", teamNumber: team.number, matchNumber: match.matchNumber, payload: args,
+      });
+    }
+
     const { matchId, teamId, ...rest } = args;
     const now = Date.now();
 
@@ -259,6 +273,7 @@ export const update = mutation({
   args: { reportId: v.id("matchReports"), reason: v.string(), ...reportInput },
   handler: async (ctx, args) => {
     const userId = await requireUser(ctx);
+    await refuseInPractice(ctx, "Real reports cannot be edited in practice mode. Exit practice mode first.");
     const reason = args.reason.trim();
     if (reason === "") throw new Error("An edit reason is required.");
     const neutral = args.auto.path.steps.filter((s) => s.kind === "neutral");
