@@ -97,7 +97,8 @@ function AccountSecurity({ email }: { email: string }) {
       });
       await deleteSelf({});
       toast.success("Account deleted");
-      await signOut();
+      // No question about unsent reports: the account is already gone.
+      await signOut({ force: true });
     } catch (error) {
       toast.error("Could not delete the account", {
         description: error instanceof Error ? error.message : String(error),

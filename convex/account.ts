@@ -35,6 +35,13 @@ async function purgeUser(ctx: MutationCtx, userId: Id<"users">) {
     .collect();
   for (const account of accounts) await ctx.db.delete(account._id);
 
+  // Bookkeeping, not scouting data: the reports themselves stay.
+  const receipts = await ctx.db
+    .query("transferReceipts")
+    .withIndex("by_author_report", (q) => q.eq("authorId", userId))
+    .collect();
+  for (const receipt of receipts) await ctx.db.delete(receipt._id);
+
   const profile = await ctx.db
     .query("profiles")
     .withIndex("by_user", (q) => q.eq("userId", userId))

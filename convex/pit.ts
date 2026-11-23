@@ -1,9 +1,11 @@
-import { v, type Infer } from "convex/values";
+import { v, type Infer, type ObjectType } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { activeEvent, currentTeamNumber, requireUser } from "./lib/guards";
+import {
+  activeEvent, activeEventOf, currentTeamNumber, requireUser, teamNumberOf,
+} from "./lib/guards";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
-import { isPracticing, savePractice } from "./lib/practice";
+import { isPracticing, isPracticingAs, savePracticeAs } from "./lib/practice";
 import { MAX_OTHER_SPARES, SPARE_PARTS, type Battery, type Spare } from "./lib/spares";
 import { pitIsBlank } from "./lib/pitStatus";
 
@@ -163,7 +165,16 @@ export async function mine(
 ): Promise<Doc<"pitReports"> | null> {
   const scoutingTeamNumber = await currentTeamNumber(ctx);
   if (scoutingTeamNumber === undefined) return null;
+  return await reportFor(ctx, eventId, teamId, scoutingTeamNumber);
+}
 
+/** A given scouting team's report on a robot. */
+async function reportFor(
+  ctx: QueryCtx | MutationCtx,
+  eventId: Id<"events">,
+  teamId: Id<"teams">,
+  scoutingTeamNumber: number,
+): Promise<Doc<"pitReports"> | null> {
   const rows = await ctx.db
     .query("pitReports")
     .withIndex("by_event_team", (q) =>
@@ -216,8 +227,7 @@ export const generateUploadUrl = mutation({
  * report rather than creating a duplicate — pits get revisited, and two
  * conflicting reports for one robot is worse than one that changed.
  */
-export const upsert = mutation({
-  args: {
+export const upsertArgs = {
     teamId: v.id("teams"),
     scoring: scoringInput,
     climb: climbInput,
@@ -235,25 +245,75 @@ export const upsert = mutation({
     // Optional for the same reason. null clears a weight that was set.
     robotWeight: v.optional(v.union(v.number(), v.null())),
     drivetrainGearing: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const scoutId = await requireUser(ctx);
-    const event = await activeEvent(ctx);
-    if (!event) throw new Error("No active event.");
+};
+type UpsertArgs = ObjectType<typeof upsertArgs>;
 
-    if (await isPracticing(ctx)) {
+/**
+ * For a report that was filled in without seeing what is stored (held
+ * offline, then sent): a blank in it means "not answered", so it takes the
+ * stored answer instead of clearing it. Where both have an answer the new one
+ * wins. An unticked box is a blank, and a group of boxes is one answer.
+ */
+function keepStoredAnswers(args: UpsertArgs, stored: Doc<"pitReports">): UpsertArgs {
+  const blank = (text: string) => text.trim() === "";
+  const s = args.scoring;
+  const noScoring = !(s.turret || s.drumNonFullWidth || s.drumFullWidth || s.fixed || s.kitbot || s.other)
+    && blank(s.otherText);
+  const c = args.climb;
+  const noClimb = !(c.low || c.mid || c.high || c.duringAuto);
+  return {
+    ...args,
+    scoring: noScoring ? stored.scoring : s,
+    climb: noClimb ? stored.climb : c,
+    drivetrain: blank(args.drivetrain) ? stored.drivetrain : args.drivetrain,
+    underTrench: args.underTrench || stored.underTrench,
+    overBump: args.overBump || stored.overBump,
+    robotNotes: blank(args.robotNotes) ? stored.robotNotes : args.robotNotes,
+    otherNotes: blank(args.otherNotes) ? stored.otherNotes : args.otherNotes,
+    hopper: args.hopper && {
+      roof: args.hopper.roof ?? stored.hopper?.roof ?? null,
+      capacity: args.hopper.capacity ?? stored.hopper?.capacity ?? null,
+      expandedCapacity: args.hopper.expandedCapacity ?? stored.hopper?.expandedCapacity ?? null,
+    },
+    // Left out, these keep what is stored (see the fields below).
+    spares: args.spares?.length ? args.spares : undefined,
+    batteries: args.batteries?.length ? args.batteries : undefined,
+    robotWeight: args.robotWeight ?? undefined,
+    drivetrainGearing: args.drivetrainGearing === undefined || blank(args.drivetrainGearing)
+      ? undefined
+      : args.drivetrainGearing,
+  };
+}
+
+/**
+ * Writes one pit report for the given scout's team. pit.upsert calls it for
+ * the signed-in scout; a report held offline arrives through
+ * convex/lib/transfer.ts with held set, which keeps stored answers where the
+ * held report is blank.
+ */
+export async function writePitReport(
+  ctx: MutationCtx,
+  scoutId: Id<"users">,
+  input: UpsertArgs,
+  held = false,
+) {
+    const event = await activeEventOf(ctx, scoutId);
+    if (!event) throw new Error("No active event.");
+    let args = input;
+
+    if (await isPracticingAs(ctx, scoutId)) {
       const team = await ctx.db.get(args.teamId);
       if (!team || team.eventId !== event._id) {
         throw new Error("That team is not part of the active event.");
       }
       // A practice photo is not kept.
       if (args.photoId) await ctx.storage.delete(args.photoId);
-      return await savePractice(ctx, {
+      return await savePracticeAs(ctx, scoutId, {
         kind: "pit", teamNumber: team.number, matchNumber: null, payload: { ...args, photoId: null },
       });
     }
 
-    const scoutingTeamNumber = await currentTeamNumber(ctx);
+    const scoutingTeamNumber = await teamNumberOf(ctx, scoutId);
     if (scoutingTeamNumber === undefined) {
       throw new Error("Set your team number on your profile first.");
     }
@@ -263,7 +323,8 @@ export const upsert = mutation({
       throw new Error("That team is not part of the active event.");
     }
 
-    const existing = await mine(ctx, event._id, args.teamId);
+    const existing = await reportFor(ctx, event._id, args.teamId, scoutingTeamNumber);
+    if (held && existing) args = keepStoredAnswers(args, existing);
 
     const fields = {
       scoring: args.scoring,
@@ -305,5 +366,9 @@ export const upsert = mutation({
       teamId: args.teamId,
       ...fields,
     });
-  },
+}
+
+export const upsert = mutation({
+  args: upsertArgs,
+  handler: async (ctx, args) => await writePitReport(ctx, await requireUser(ctx), args),
 });

@@ -7,7 +7,12 @@
  * returns the live result whenever there is one.
  *
  * Rules (offline plan, sections 1 and 6):
- *  - A copy only. Nothing here is ever sent back to Convex.
+ *  - The cached queries are a copy only, and are never sent back to Convex.
+ *  - The same database also holds the outbox: reports saved with no
+ *    connection, waiting to be sent (data transfer plan, section 3). This
+ *    file only stores those rows; src/lib/offline/held.ts owns what they
+ *    mean. Unlike the cached queries, outbox rows are not dropped when a
+ *    different user signs in or the cache version changes.
  *  - One person on one device. Rows are keyed by user and dropped when a
  *    different user is confirmed, or on clearOfflineData().
  *  - Scouting queries take no event argument: the server resolves the
@@ -24,9 +29,11 @@
 export const CACHE_VERSION = 1;
 
 const DB_NAME = "circuitscout-offline";
-const DB_VERSION = 1;
+// 2 added the outbox store. Raising this never empties the other stores.
+const DB_VERSION = 2;
 const QUERIES = "queries";
 const META = "meta";
+const OUTBOX = "outbox";
 const OPEN_TIMEOUT_MS = 1500;
 const FLUSH_DELAY_MS = 400;
 
@@ -117,6 +124,9 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(META)) {
         database.createObjectStore(META, { keyPath: "name" });
       }
+      if (!database.objectStoreNames.contains(OUTBOX)) {
+        database.createObjectStore(OUTBOX, { keyPath: "id" }).createIndex("userId", "userId");
+      }
     };
     request.onsuccess = () => {
       clearTimeout(timer);
@@ -193,6 +203,9 @@ async function open(): Promise<void> {
         });
       }
     }
+    outboxAtOpen = (await settled(
+      database.transaction(OUTBOX).objectStore(OUTBOX).getAll(),
+    )) as unknown[];
     db = database;
     database.onversionchange = () => {
       database.close();
@@ -281,6 +294,51 @@ export function setActiveEvent(id: string | null) {
   writeMeta("activeEventId", id);
   bump();
   scheduleFlush();
+}
+
+/**
+ * The active event as last reported by the server, in this session or an
+ * earlier one. undefined: never reported on this device. null: no event.
+ */
+export const knownEventId = (): string | null | undefined =>
+  eventId !== undefined ? eventId : storedEventId;
+
+// ---- The outbox ------------------------------------------------------------
+
+let outboxAtOpen: unknown[] = [];
+
+/** Every outbox row that was on the device when the store opened. */
+export const outboxRowsAtOpen = (): unknown[] => outboxAtOpen;
+
+/** False when IndexedDB could not be opened: rows then live in this tab only. */
+export const outboxIsDurable = (): boolean => db !== null;
+
+/** Every outbox row on the device now, or null when it cannot be read. */
+export async function outboxReadAll(): Promise<unknown[] | null> {
+  if (!db) return null;
+  try {
+    return (await settled(db.transaction(OUTBOX).objectStore(OUTBOX).getAll())) as unknown[];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Writes rows and removes ids in one transaction. Resolves true once they
+ * are on the device; false means they are held in this tab's memory only.
+ */
+export async function outboxChange(put: ReadonlyArray<{ id: string }>, remove: ReadonlyArray<string>): Promise<boolean> {
+  if (!db) return false;
+  try {
+    const tx = db.transaction([OUTBOX], "readwrite");
+    const store = tx.objectStore(OUTBOX);
+    for (const id of remove) store.delete(id);
+    for (const row of put) store.put(row);
+    await finished(tx);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Sign-out: everything about this user leaves the device. */

@@ -242,16 +242,16 @@ function PitReportForm({ data, back }: { data: PitData; back: ReactNode }) {
       return;
     }
     if (!online && !photoFile) {
-      // No connection: hand the report to the held list rather than waiting
-      // here. It sends when the connection returns, while the app stays open.
-      holdSubmission({
+      // No connection: hand the report to the outbox rather than waiting
+      // here. It is kept on this device and sent when the connection returns.
+      const heldNow = holdSubmission({
         key: `note-pit:${teamNumber}`,
         label: `Team ${teamNumber} pit report`,
         to: `/pit/${teamNumber}`,
         values: form,
-        send: () => save({ teamNumber, ...draft, photoId: null }),
+        report: { kind: "notePit", args: { teamNumber, ...draft, photoId: null } },
       });
-      void navigate("/pit");
+      if (heldNow) void navigate("/pit");
       return;
     }
     setSaving(true);

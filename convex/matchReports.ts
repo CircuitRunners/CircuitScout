@@ -1,8 +1,10 @@
-import { v } from "convex/values";
+import { v, type ObjectType } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { activeEvent, requireUser } from "./lib/guards";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { activeEvent, activeEventOf, requireUser } from "./lib/guards";
 import { mine as myPitReport } from "./pit";
-import { isPracticing, refuseInPractice, savePractice } from "./lib/practice";
+import { isPracticing, isPracticingAs, refuseInPractice, savePracticeAs } from "./lib/practice";
 import { MAX_AUTO_CYCLES } from "./lib/scoring";
 import { bumpReportCount } from "./lib/reportCounts";
 import { refreshTeamSummary } from "./lib/teamSummaries";
@@ -196,11 +198,21 @@ export const editHistory = query({
       .collect(),
 });
 
-export const submit = mutation({
-  args: { matchId: v.id("matches"), teamId: v.id("teams"), ...reportInput },
-  handler: async (ctx, args) => {
-    const scoutId = await requireUser(ctx);
-    const event = await activeEvent(ctx);
+export const submitArgs = { matchId: v.id("matches"), teamId: v.id("teams"), ...reportInput };
+
+/**
+ * Writes one match report for the given scout. The only place a match report
+ * is created: matchReports.submit calls it for the signed-in scout, and a
+ * report held offline arrives through convex/lib/transfer.ts. Everything a
+ * new report must update (the count, the team summary, both tallies) is here,
+ * so no route can skip it.
+ */
+export async function writeMatchReport(
+  ctx: MutationCtx,
+  scoutId: Id<"users">,
+  args: ObjectType<typeof submitArgs>,
+) {
+    const event = await activeEventOf(ctx, scoutId);
     if (!event) throw new Error("No active event.");
 
     const neutral = args.auto.path.steps.filter((s) => s.kind === "neutral");
@@ -224,10 +236,10 @@ export const submit = mutation({
     }
 
     // Practice: same checks as above, then saved for the scout only.
-    if (await isPracticing(ctx)) {
+    if (await isPracticingAs(ctx, scoutId)) {
       const [match, team] = await Promise.all([ctx.db.get(args.matchId), ctx.db.get(args.teamId)]);
       if (!match || !team) throw new Error("That match or team is not at the active event.");
-      return await savePractice(ctx, {
+      return await savePracticeAs(ctx, scoutId, {
         kind: "match", teamNumber: team.number, matchNumber: match.matchNumber, payload: args,
       });
     }
@@ -261,7 +273,11 @@ export const submit = mutation({
     await refreshScoutTally(ctx, event._id, scoutId);
 
     return reportId;
-  },
+}
+
+export const submit = mutation({
+  args: submitArgs,
+  handler: async (ctx, args) => await writeMatchReport(ctx, await requireUser(ctx), args),
 });
 
 /**

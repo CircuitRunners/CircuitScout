@@ -34,6 +34,7 @@ import type * as lib_scoring from "../lib/scoring.js";
 import type * as lib_spares from "../lib/spares.js";
 import type * as lib_summarise from "../lib/summarise.js";
 import type * as lib_teamSummaries from "../lib/teamSummaries.js";
+import type * as lib_transfer from "../lib/transfer.js";
 import type * as lib_types from "../lib/types.js";
 import type * as mailer from "../mailer.js";
 import type * as match13 from "../match13.js";
@@ -55,6 +56,7 @@ import type * as statbotics from "../statbotics.js";
 import type * as stats from "../stats.js";
 import type * as tba from "../tba.js";
 import type * as teams from "../teams.js";
+import type * as transfer from "../transfer.js";
 import type * as workbook from "../workbook.js";
 
 import type {
@@ -90,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   "lib/spares": typeof lib_spares;
   "lib/summarise": typeof lib_summarise;
   "lib/teamSummaries": typeof lib_teamSummaries;
+  "lib/transfer": typeof lib_transfer;
   "lib/types": typeof lib_types;
   mailer: typeof mailer;
   match13: typeof match13;
@@ -111,6 +114,7 @@ declare const fullApi: ApiFromModules<{
   stats: typeof stats;
   tba: typeof tba;
   teams: typeof teams;
+  transfer: typeof transfer;
   workbook: typeof workbook;
 }>;
 

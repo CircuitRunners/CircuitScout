@@ -126,8 +126,8 @@ function MatchReportForm({ data, back }: { data: MatchData; back: ReactNode }) {
       return;
     }
     if (!online) {
-      // No connection: hand the report to the held list rather than waiting
-      // here. It sends when the connection returns, while the app stays open.
+      // No connection: hand the report to the outbox rather than waiting
+      // here. It is kept on this device and sent when the connection returns.
       const report = {
         autoPath, autoScoring, teleopScoring, endgame,
         driver, defense,
@@ -135,14 +135,17 @@ function MatchReportForm({ data, back }: { data: MatchData; back: ReactNode }) {
         inconsistent, inconsistentNotes: inconsistent ? inconsistentNotes : "",
         notes: finalNotes,
       };
-      holdSubmission({
+      const heldNow = holdSubmission({
         key: `note-match:${data.matchNumber}:${data.teamNumber}`,
         label: `Qual ${data.matchNumber} · team ${data.teamNumber}`,
         to: `/scout/${data.matchNumber}/${data.teamNumber}`,
         values: report,
-        send: () => save({ matchNumber: data.matchNumber, teamNumber: data.teamNumber, ...report }),
+        report: {
+          kind: "noteMatch",
+          args: { matchNumber: data.matchNumber, teamNumber: data.teamNumber, ...report },
+        },
       });
-      void navigate("/scout");
+      if (heldNow) void navigate("/scout");
       return;
     }
     setSaving(true);

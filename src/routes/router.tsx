@@ -10,6 +10,7 @@ import { OnlineOnly } from "./online-only";
 import ArchivePage from "./archive/index";
 import ArchiveEventPage from "./archive/event";
 import ProfilePage from "./profile";
+import ScanPage from "./scan";
 import NotFoundPage from "./not-found";
 import SignInPage from "./sign-in";
 import ForgotPasswordPage from "./forgot-password";
@@ -46,6 +47,9 @@ export const router = createBrowserRouter([
                   { path: "archive/:eventKey", element: <ArchiveEventPage /> },
                 ],
               },
+
+              // Says so itself when offline: a scan in progress must not vanish.
+              { path: "scan", element: <ScanPage /> },
 
               { path: "pit", element: <SeasonPage page="pit" /> },
               { path: "pit/:teamNumber", element: <SeasonPage page="pitForm" /> },

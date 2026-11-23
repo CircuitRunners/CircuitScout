@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { CloudOff, CloudUpload } from "lucide-react";
 
-import { useHeldItems } from "@/lib/offline/held";
+import { heldIsDurable, useHeldItems } from "@/lib/offline/held";
 import { useOnline } from "@/lib/offline/status";
 import { oldestServed, subscribeServed } from "@/lib/offline/store";
 
@@ -20,16 +20,18 @@ const reports = (n: number) => `${n} report${n === 1 ? "" : "s"}`;
  *
  * Back online with reports still waiting: says they are being sent.
  *
- * While any report is waiting, the browser is asked to warn before the tab
- * is closed or reloaded, because that would lose it.
+ * Waiting reports are kept on the device, so closing the app does not lose
+ * them. Only when the device would not store them is the browser asked to
+ * warn before the tab is closed or reloaded.
  */
 export function OfflineBanner() {
   const online = useOnline();
   const oldest = useSyncExternalStore(subscribeServed, oldestServed);
   const waiting = useHeldItems().filter((i) => i.status === "waiting").length;
 
+  const atRisk = waiting > 0 && !heldIsDurable();
   useEffect(() => {
-    if (waiting === 0) return;
+    if (!atRisk) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       // Older browsers need a return value to show the prompt.
@@ -37,7 +39,7 @@ export function OfflineBanner() {
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [waiting]);
+  }, [atRisk]);
 
   if (online && waiting === 0) return null;
   if (online) {
@@ -47,7 +49,7 @@ export function OfflineBanner() {
         className="bg-primary text-primary-foreground flex items-center justify-center gap-2 px-4 py-1.5 text-center text-xs font-medium"
       >
         <CloudUpload className="size-3.5 shrink-0" />
-        <span>Back online. Sending {reports(waiting)}. Keep CircuitScout open.</span>
+        <span>Back online. Sending {reports(waiting)}.{atRisk ? " Keep CircuitScout open." : ""}</span>
       </div>
     );
   }

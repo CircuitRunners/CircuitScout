@@ -2,6 +2,7 @@ import { Link } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
 import { HeldList } from "@/components/held";
+import { ScanQrLink } from "@/components/scan-link";
 import { OfflineReady } from "@/components/offline-ready";
 import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { NotesExport } from "./export";
@@ -69,6 +70,7 @@ export default function NotesDashboardPage() {
         ]}
       />
       <HeldList />
+      <ScanQrLink />
       {assignments?.upNext ? (
         <Card>
           <CardHeader>

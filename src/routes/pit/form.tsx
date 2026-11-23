@@ -372,17 +372,17 @@ export default function PitFormPage() {
       return;
     }
     if (!online && !photoFile) {
-      // No connection: hand the report to the held list rather than waiting
-      // here. It sends when the connection returns, while the app stays open.
+      // No connection: hand the report to the outbox rather than waiting
+      // here. It is kept on this device and sent when the connection returns.
       const team = data.team;
-      holdSubmission({
+      const heldNow = holdSubmission({
         key: `pit:${team.number}`,
         label: `Team ${team.number} pit report`,
         to: `/pit/${team.number}`,
         values: form,
-        send: () => upsert({ teamId: team._id, ...draft, photoId: null }),
+        report: { kind: "pit", args: { teamId: team._id, ...draft, photoId: null } },
       });
-      void navigate("/pit");
+      if (heldNow) void navigate("/pit");
       return;
     }
     setSaving(true);

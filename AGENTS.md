@@ -11,11 +11,15 @@ Always `bun`, `bunx`, `bun run` — never npm/pnpm/yarn/npx.
     bun run go          # Convex + Vite together (use this)
     bun run build
     bun run lint
-    bun run typecheck
+    bun run typecheck   # the app only
+    bunx tsc -p convex  # the Convex functions; typecheck does not cover them
 
 ## State boundary — the rule that matters most
 - **Convex** owns everything persisted: domain data, auth, live queries,
   mutations. Read with `useQuery`, write with `useMutation`.
+  A query that pages show offline is read with `useCachedQuery` instead, and
+  a write that must not wait in a queue offline (pick lists, Admin) uses
+  `useOnlineMutation`. Both are in `src/lib/offline/`.
 - **Zustand** (`src/stores/ui-store.ts`) owns only ephemeral client UI state:
   selection, active tab, sidebar/panel/dialog open, drag state, transient
   editor state, local UI preferences.
@@ -26,6 +30,19 @@ Always `bun`, `bunx`, `bun run` — never npm/pnpm/yarn/npx.
   which returns the live result whenever there is one. Never read the store
   from a page, never put a cached result in Zustand, and bump
   `CACHE_VERSION` in `store.ts` when a cached query's return shape changes.
+- A form saved with no connection hands its report to `holdSubmission` in
+  `src/lib/offline/held.ts`. It is kept in the same IndexedDB database (the
+  outbox) and sent with `transfer.send` once the server has confirmed the
+  scout again, or uploaded by a teammate who scans its QR (`transfer.relay`).
+  Never queue an offline save in the Convex client, and never send a held
+  report by any other route: those two write each held id once.
+- The four saves a form can hold offline (`matchReports.submit`,
+  `pit.upsert`, `notes.saveMatchReport`, `notes.savePitReport`) are thin
+  wrappers around `writeMatchReport`, `writePitReport`, `writeGenericMatch`
+  and `writeGenericPit`. Change what a save writes in the write function,
+  so a save made online, a held report and a relayed one cannot differ. A
+  new form that can be saved offline also needs a kind in `heldReport`
+  (`convex/lib/transfer.ts`).
 - Never add API routes, server handlers or a backend layer for data that
   belongs in Convex.
 

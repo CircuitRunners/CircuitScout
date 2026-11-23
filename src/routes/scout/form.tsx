@@ -307,17 +307,17 @@ export default function MatchFormPage() {
       } else {
         const args = { matchId: data.match._id, teamId: data.team._id, ...payload };
         if (!online) {
-          // No connection: hand the report to the held list rather than
-          // waiting here. It sends when the connection returns, while the
-          // app stays open.
-          holdSubmission({
+          // No connection: hand the report to the outbox rather than
+          // waiting here. It is kept on this device and sent when the
+          // connection returns.
+          const heldNow = holdSubmission({
             key: heldKey,
             label: `Qual ${matchNumber} · team ${teamNumber}`,
             to: `/scout/${matchNumber}/${teamNumber}`,
             values: payload,
-            send: () => submit(args),
+            report: { kind: "match", args },
           });
-          void navigate("/scout");
+          if (heldNow) void navigate("/scout");
           return;
         }
         await submit(args);

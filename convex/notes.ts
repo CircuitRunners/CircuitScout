@@ -1,10 +1,11 @@
-import { v } from "convex/values";
+import { v, type ObjectType } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { isPracticing, savePractice } from "./lib/practice";
+import { isPracticing, isPracticingAs, savePractice, savePracticeAs } from "./lib/practice";
 import {
-  activeEvent, currentProfile, currentTeamNumber, managesTeam, requireTeamAdmin, requireUser,
+  activeEvent, activeEventOf, currentProfile, currentTeamNumber, managesTeam, requireTeamAdmin,
+  requireUser, teamNumberOf,
 } from "./lib/guards";
 import { stationIndex, type Station } from "./lib/types";
 import {
@@ -192,8 +193,7 @@ function text(s: string, max: number, what: string): string {
  * The pit form for seasons without their own forms. One report per team per
  * scouting team, like 2026: a second scout from the same team updates it.
  */
-export const savePitReport = mutation({
-  args: {
+export const savePitReportArgs = {
     teamNumber: v.number(),
     scoringText: v.string(),
     drivetrain: v.string(),
@@ -204,12 +204,24 @@ export const savePitReport = mutation({
     photoId: v.union(v.id("_storage"), v.null()),
     notes: v.string(),
     otherNotes: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const scoutId = await requireUser(ctx);
-    const event = await activeEvent(ctx);
+};
+
+/**
+ * Writes one other-season pit report for the given scout's team.
+ * notes.savePitReport calls it for the signed-in scout; a report held offline
+ * arrives through convex/lib/transfer.ts with held set. A held report was
+ * filled in without seeing what is stored, so its blanks keep the stored
+ * answers; where both have an answer the new one wins.
+ */
+export async function writeGenericPit(
+  ctx: MutationCtx,
+  scoutId: Id<"users">,
+  args: ObjectType<typeof savePitReportArgs>,
+  held = false,
+) {
+    const event = await activeEventOf(ctx, scoutId);
     if (!event) throw new Error("No active event.");
-    const scoutingTeamNumber = await currentTeamNumber(ctx);
+    const scoutingTeamNumber = await teamNumberOf(ctx, scoutId);
     if (scoutingTeamNumber === undefined) {
       throw new Error("Set your team number on your profile first.");
     }
@@ -256,10 +268,10 @@ export const savePitReport = mutation({
       otherNotes: text(args.otherNotes, MAX_NOTE, "Other notes"),
     };
 
-    if (await isPracticing(ctx)) {
+    if (await isPracticingAs(ctx, scoutId)) {
       // A practice photo is not kept.
       if (args.photoId) await ctx.storage.delete(args.photoId);
-      return await savePractice(ctx, {
+      return await savePracticeAs(ctx, scoutId, {
         kind: "pitNote", teamNumber: team.number, matchNumber: null, payload: fields,
       });
     }
@@ -271,8 +283,21 @@ export const savePitReport = mutation({
         .collect()
     ).find((p) => p.scoutingTeamNumber === scoutingTeamNumber);
 
+    const kept = held && existing
+      ? {
+          scoringText: fields.scoringText || existing.scoringText || "",
+          drivetrain: fields.drivetrain || existing.drivetrain || "",
+          drivetrainGearing: fields.drivetrainGearing || existing.drivetrainGearing || "",
+          robotWeight: fields.robotWeight ?? existing.robotWeight,
+          spares: fields.spares.length > 0 ? fields.spares : existing.spares ?? [],
+          batteries: fields.batteries.length > 0 ? fields.batteries : existing.batteries ?? [],
+          notes: fields.notes || existing.notes,
+          otherNotes: fields.otherNotes || existing.otherNotes || "",
+        }
+      : fields;
+
     const row = {
-      ...fields,
+      ...kept,
       // Keep the old photo when this save did not include a new one.
       photoId: args.photoId ?? existing?.photoId ?? null,
       scoutId,
@@ -286,7 +311,11 @@ export const savePitReport = mutation({
       return existing._id;
     }
     return await ctx.db.insert("pitNotes", { eventId: event._id, teamId: team._id, ...row });
-  },
+}
+
+export const savePitReport = mutation({
+  args: savePitReportArgs,
+  handler: async (ctx, args) => await writeGenericPit(ctx, await requireUser(ctx), args),
 });
 
 // ─── Match ─────────────────────────────────────────────────────────────────
@@ -390,8 +419,7 @@ export const saveMatch = mutation({
  * The match form for seasons without their own forms. One report per scout
  * per robot per match; saving again replaces it.
  */
-export const saveMatchReport = mutation({
-  args: {
+export const saveMatchReportArgs = {
     matchNumber: v.number(),
     teamNumber: v.number(),
     autoPath: v.string(),
@@ -405,12 +433,23 @@ export const saveMatchReport = mutation({
     inconsistent: v.boolean(),
     inconsistentNotes: v.string(),
     notes: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const scoutId = await requireUser(ctx);
-    const event = await activeEvent(ctx);
+};
+
+/**
+ * Writes one other-season match report for the given scout.
+ * notes.saveMatchReport calls it for the signed-in scout; a report held
+ * offline arrives through convex/lib/transfer.ts with held set, which keeps
+ * the scout's stored answers where the held report is blank.
+ */
+export async function writeGenericMatch(
+  ctx: MutationCtx,
+  scoutId: Id<"users">,
+  args: ObjectType<typeof saveMatchReportArgs>,
+  held = false,
+) {
+    const event = await activeEventOf(ctx, scoutId);
     if (!event) throw new Error("No active event.");
-    const scoutingTeamNumber = await currentTeamNumber(ctx);
+    const scoutingTeamNumber = await teamNumberOf(ctx, scoutId);
     if (scoutingTeamNumber === undefined) {
       throw new Error("Set your team number on your profile first.");
     }
@@ -442,8 +481,8 @@ export const saveMatchReport = mutation({
       notes: text(notes, MAX_NOTE, "Final notes"),
     };
 
-    if (await isPracticing(ctx)) {
-      return await savePractice(ctx, {
+    if (await isPracticingAs(ctx, scoutId)) {
+      return await savePracticeAs(ctx, scoutId, {
         kind: "matchNote", teamNumber: team.number, matchNumber: match.matchNumber, payload: fields,
       });
     }
@@ -457,7 +496,21 @@ export const saveMatchReport = mutation({
 
     const now = Date.now();
     if (existing) {
-      await ctx.db.patch(existing._id, { ...fields, scoutingTeamNumber, updatedAt: now });
+      // An unticked box is a blank too: it cannot untick what is stored.
+      const kept = held
+        ? {
+            ...fields,
+            autoPath: fields.autoPath || existing.autoPath || "",
+            autoScoring: fields.autoScoring || existing.autoScoring || "",
+            teleopScoring: fields.teleopScoring || existing.teleopScoring || "",
+            endgame: fields.endgame || existing.endgame || "",
+            broke: fields.broke || existing.broke === true,
+            brokeNotes: fields.brokeNotes || existing.brokeNotes || "",
+            inconsistent: fields.inconsistent || existing.inconsistent === true,
+            inconsistentNotes: fields.inconsistentNotes || existing.inconsistentNotes || "",
+          }
+        : fields;
+      await ctx.db.patch(existing._id, { ...kept, scoutingTeamNumber, updatedAt: now });
       return existing._id;
     }
     return await ctx.db.insert("matchNotes", {
@@ -470,7 +523,11 @@ export const saveMatchReport = mutation({
       submittedAt: now,
       updatedAt: now,
     });
-  },
+}
+
+export const saveMatchReport = mutation({
+  args: saveMatchReportArgs,
+  handler: async (ctx, args) => await writeGenericMatch(ctx, await requireUser(ctx), args),
 });
 
 /** Your match notes at this event, newest first, for "My notes". */

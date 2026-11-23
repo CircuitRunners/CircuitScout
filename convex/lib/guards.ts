@@ -140,6 +140,37 @@ export async function activeEventForTeam(
   return event;
 }
 
+/**
+ * A given user's profile, team and event. The versions above read the caller
+ * from the session; these take the user as an argument, for a report that is
+ * written on its author's behalf (convex/lib/transfer.ts).
+ */
+export async function profileOf(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+): Promise<Doc<"profiles"> | null> {
+  return await ctx.db
+    .query("profiles")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .unique();
+}
+
+export async function teamNumberOf(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+): Promise<number | undefined> {
+  return effectiveTeamNumber(await profileOf(ctx, userId));
+}
+
+export async function activeEventOf(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+): Promise<Doc<"events"> | null> {
+  const teamNumber = await teamNumberOf(ctx, userId);
+  if (teamNumber === undefined) return null;
+  return await activeEventForTeam(ctx, teamNumber);
+}
+
 export async function requireActiveEvent(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"events">> {

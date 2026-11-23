@@ -94,6 +94,28 @@ export default defineSchema({
     .index("by_user_target", ["userId", "kind", "eventId", "teamNumber", "matchNumber"]),
 
   /**
+   * One row per report that arrived from a device's outbox (a report saved
+   * with no connection and sent later). reportId is made on the device when
+   * the form is saved, so the same report sent twice, by any route, is
+   * written once: the report and its receipt are written in one mutation.
+   * Reports saved online have no receipt.
+   */
+  transferReceipts: defineTable({
+    authorId: v.id("users"),
+    reportId: v.string(),
+    kind: v.union(
+      v.literal("match"), v.literal("pit"), v.literal("noteMatch"), v.literal("notePit"),
+    ),
+    eventId: v.id("events"),
+    /** direct: sent by the author's own device. relay: uploaded by a teammate. */
+    via: v.union(v.literal("direct"), v.literal("relay")),
+    relayedBy: v.optional(v.id("users")),
+    receivedAt: v.number(),
+  })
+    .index("by_author_report", ["authorId", "reportId"])
+    .index("by_event", ["eventId"]),
+
+  /**
    * Someone claiming a team number. Recorded rather than applied silently:
    * a scout typing 1002 is asserting membership, and the team gets to decide.
    */

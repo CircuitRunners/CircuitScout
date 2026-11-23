@@ -1,3 +1,5 @@
+This project's stack rules are in AGENTS.md. Read them before changing anything: @AGENTS.md
+
 <!-- convex-ai-start -->
 
 This project uses [Convex](https://convex.dev) as its backend.

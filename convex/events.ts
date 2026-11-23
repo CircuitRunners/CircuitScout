@@ -527,6 +527,15 @@ async function deleteNotes(ctx: MutationCtx, eventId: Id<"events">) {
   for (const row of match) await ctx.db.delete(row._id);
 }
 
+/** Receipts for reports that arrived from a device's outbox. */
+async function deleteReceipts(ctx: MutationCtx, eventId: Id<"events">) {
+  const receipts = await ctx.db
+    .query("transferReceipts")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .collect();
+  for (const row of receipts) await ctx.db.delete(row._id);
+}
+
 /** Shared by the immediate purge and the scheduled one. */
 async function purgeEventData(ctx: MutationCtx, eventId: Id<"events">) {
   const args = { eventId };
@@ -612,6 +621,7 @@ async function purgeEventData(ctx: MutationCtx, eventId: Id<"events">) {
 
     await deleteRatings(ctx, args.eventId);
     await deleteNotes(ctx, args.eventId);
+    await deleteReceipts(ctx, args.eventId);
 
     // Any team pointing at this event is left with none rather than a
     // dangling id, so their app says "no active event" instead of breaking.

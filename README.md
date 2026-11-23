@@ -1,75 +1,71 @@
-# React + TypeScript + Vite
+# CircuitScout
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A mobile-first scouting app for FIRST Robotics Competition teams, built by
+CircuitRunners (FRC 1002). Scouts record pit and match reports on their
+phones; the team reviews robots, compares them and builds pick lists.
 
-Currently, two official plugins are available:
+Created by Tarun A, FRC 1002.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## What it does
 
-## React Compiler
+- **Pit and match scouting** for the active event, with match assignments.
+- **Teams, matches and pick lists**: stored averages, compare, data plot,
+  match previews and shared pick list boards.
+- **Admin**: events imported from The Blue Alliance, accounts, exports,
+  past events.
+- **Works offline**: after one online visit the app opens with no
+  connection, shows the last data it saw, and lets scouts fill in forms.
+- **Reports saved offline are kept on the device** and send by themselves
+  on reconnect. A teammate who is online can also upload them by scanning
+  the scout's QR code.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Stack
 
-## Expanding the ESLint configuration
+Bun · Vite · React 19 · TypeScript (strict) · React Router 7 ·
+Tailwind CSS v4 · shadcn/ui on Base UI · Convex (data and auth) ·
+installable as a PWA.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+The rules for working in this codebase are in [AGENTS.md](AGENTS.md).
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Running it
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Always use `bun`.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+    bun install
+    bun run go            # Convex and Vite together
+    bun run typecheck     # the app
+    bunx tsc -p convex    # the Convex functions
+    bun run lint
+    bun run build
 
-```
+`bun run go` needs a Convex deployment. The app reads its address from
+`VITE_CONVEX_URL`.
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Convex functions read these environment variables, set on the deployment:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+| Variable | Used for |
+| --- | --- |
+| `TBA_API_KEY` | Importing events, teams and schedules from The Blue Alliance |
+| `MATCH13_API_KEY` | match13 ratings |
+| `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Password reset emails |
+| `SITE_URL` | Links in those emails, and sign-in |
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## How changes ship
 
-```
+Each change is one `patch-*.sh` script at the repo root. A script checks
+every file it will touch before writing anything, and is safe to run twice.
+
+    bash patch-name.sh
+
+Production is built on Vercel with one command, which deploys the Convex
+functions and builds the site in the same step, so the two go out together:
+
+    bunx convex deploy --cmd 'bun run build'
+
+## Offline, in short
+
+- The built app is stored on the device by a service worker. A new release
+  shows an "Update available" prompt, never in the middle of a form.
+- Pick lists and Admin are view only without a connection.
+- Photos need a connection.
+- Signing out discards reports that have not been sent. The app asks first.
