@@ -19,4 +19,13 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // shadcn/ui files export their cva variants next to the component by
+    // design, and `shadcn add` would put them back. Fast refresh still works
+    // for them; it just reloads the page for a change in one of these files.
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

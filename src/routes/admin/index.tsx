@@ -127,6 +127,9 @@ function AdminPageBody() {
   const removeEvent = useOnlineMutation(api.events.remove);
   const [removing, setRemoving] = useState<string | null>(null);
   const [confirmKey, setConfirmKey] = useState("");
+  // Read once when the page opens. Calling Date.now() while rendering gives a
+  // different answer every render; an hour count only needs a fixed moment.
+  const [now] = useState(() => Date.now());
 
   const me = useCachedQuery(api.profiles.me);
   const isFullAdmin = me?.role === "admin";
@@ -371,7 +374,7 @@ function AdminPageBody() {
                 .map((event) => {
                   const hoursLeft = Math.max(
                     0,
-                    Math.ceil((event.deletedAt! + 24 * 60 * 60 * 1000 - Date.now()) / 3600000),
+                    Math.ceil((event.deletedAt! + 24 * 60 * 60 * 1000 - now) / 3600000),
                   );
                   return (
                     <div key={event._id}

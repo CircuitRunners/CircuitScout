@@ -1,6 +1,6 @@
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { api } from "../../convex/_generated/api";
@@ -251,15 +251,15 @@ export default function ProfilePage() {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // Hydrate once. The query is live, so re-hydrating would overwrite what the
-  // person is typing every time anything else on their profile changed.
-  useEffect(() => {
-    if (loaded || profile === undefined || profile === null) return;
+  // Hydrate once, while rendering, as soon as the profile arrives. The query is
+  // live, so re-hydrating would overwrite what the person is typing every time
+  // anything else on their profile changed.
+  if (!loaded && profile !== undefined && profile !== null) {
     setFirstName(profile.firstName ?? "");
     setLastInitial(profile.lastInitial ?? "");
     setTeamNumber(profile.teamNumber ? String(profile.teamNumber) : "");
     setLoaded(true);
-  }, [profile, loaded]);
+  }
 
   const team = Number.parseInt(teamNumber, 10);
   const ready =

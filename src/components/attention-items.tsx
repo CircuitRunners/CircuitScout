@@ -20,7 +20,7 @@ export type AttentionRow = {
   detail: string;
 };
 
-export const KIND_LABEL = {
+const KIND_LABEL = {
   broke: "Broke down",
   inconsistent: "Inconsistent",
 } as const;

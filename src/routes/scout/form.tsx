@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { AlertTriangle, ArrowLeft, ArrowRight, Play } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -123,10 +123,10 @@ export default function MatchFormPage() {
   // Missing fields are outlined once someone tries to submit, not while they
   // are still working through the match.
   const [showErrors, setShowErrors] = useState(false);
-  // Editing hydrates once. Convex queries are live, so re-hydrating would
-  // stamp on the correction in progress every time anything else changed.
-  useEffect(() => {
-    if (!editing || hydrated) return;
+  // Editing hydrates once, while rendering, as soon as the report arrives.
+  // Convex queries are live, so re-hydrating would stamp on the correction in
+  // progress every time anything else changed.
+  if (editing && !hydrated) {
     setStart(editing.auto.path.start);
     {
       // Reports written before the climb was a step carry it as a boolean.
@@ -165,17 +165,18 @@ export default function MatchFormPage() {
     setStartedAt(editing.matchStartedAt);
     setEstimated(editing.hubStateSource === "estimated");
     setHydrated(true);
-  }, [editing, hydrated]);
+  }
 
-  // No Match Start tap: anchor on the first look at teleop. Shifts are 25s, so
-  // a few seconds of drift only misclassifies fuel near a boundary.
-  useEffect(() => {
-    if (editId) return;
-    if (period === "teleop" && startedAt === null) {
+  // Every tab change goes through here. No Match Start tap: anchor on the
+  // first look at teleop. Shifts are 25s, so a few seconds of drift only
+  // misclassifies fuel near a boundary.
+  const changePeriod = (next: typeof period) => {
+    setPeriod(next);
+    if (!editId && next === "teleop" && startedAt === null) {
       setStartedAt(estimatedStart());
       setEstimated(true);
     }
-  }, [period, startedAt, editId]);
+  };
 
   const teleopTotal =
     byShift.transition + byShift.s1 + byShift.s2 + byShift.s3 + byShift.s4;
@@ -205,7 +206,7 @@ export default function MatchFormPage() {
       : null;
 
   const goTo = (next: typeof period) => {
-    setPeriod(next);
+    changePeriod(next);
     // The switch buttons sit at the bottom of a tab; land at the top of the next.
     document.getElementById("match-form-tabs")
       ?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -428,7 +429,7 @@ export default function MatchFormPage() {
         </CardContent>
       </Card>
 
-      <Tabs value={period} onValueChange={(v) => setPeriod(v as typeof period)}>
+      <Tabs value={period} onValueChange={(v) => changePeriod(v as typeof period)}>
         <TabsList id="match-form-tabs" className="w-full scroll-mt-4">
           <TabsTrigger value="auto" className="flex-1">
             Auto

@@ -199,7 +199,7 @@ export const applyImport = internalMutation({
     matches: v.array(matchInput),
   },
   handler: async (ctx, args) => {
-    let event = await ctx.db
+    const event = await ctx.db
       .query("events")
       .withIndex("by_key", (q) => q.eq("tbaEventKey", args.tbaEventKey))
       .unique();

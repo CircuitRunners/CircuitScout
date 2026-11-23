@@ -9,7 +9,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { ArrowDownWideNarrow, ArrowLeft, ArrowUpNarrowWide } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 
@@ -161,10 +161,10 @@ export default function PickListBoardPage() {
     [teams],
   );
 
-  const statFor = (teamId: string): ChipStats | null => {
+  const statFor = useCallback((teamId: string): ChipStats | null => {
     const s = stats?.[teamId];
     return s ? (s as ChipStats) : null;
-  };
+  }, [stats]);
 
   const byTier = useMemo(() => {
     const map = new Map<Tier, Row[]>();
@@ -224,7 +224,7 @@ export default function PickListBoardPage() {
       }
     }
     return map;
-  }, [entries, sort, stats, search, picked, showPicked, ranks]);
+  }, [entries, sort, statFor, search, picked, showPicked, ranks]);
 
   const searching = search.trim() !== "";
   const selectedRow = ((entries ?? []) as Row[]).find(

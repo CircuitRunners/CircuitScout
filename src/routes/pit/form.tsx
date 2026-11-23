@@ -1,6 +1,6 @@
 import { useMutation } from "convex/react";
 import { ArrowLeft, Camera, Plus, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
@@ -277,40 +277,41 @@ export default function PitFormPage() {
   const [showErrors, setShowErrors] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  // Hydrate once. Re-hydrating on every query update would stamp on edits in
-  // progress each time another scout writes to the same event.
-  useEffect(() => {
-    if (loaded || data === undefined || data === null) return;
-    // Answers saved offline and not sent yet come first: they are newer than
-    // anything the server or the cache has.
-    const held = heldValues<FormState>(`pit:${data.team.number}`);
-    if (held) {
-      setForm(held);
-      setLoaded(true);
-      return;
-    }
-    const report = data.report;
-    if (report) {
-      setForm({
-        ...report.scoring,
-        ...report.climb,
-        drivetrainBase: report.drivetrain.split(" — ")[0] ?? "",
-        drivetrainDetail: report.drivetrain.split(" — ").slice(1).join(" — "),
-        underTrench: report.underTrench,
-        overBump: report.overBump,
-        robotNotes: report.robotNotes,
-        otherNotes: report.otherNotes,
-        hopperRoof: report.hopper?.roof ?? "",
-        hopperCapacity: report.hopper?.capacity?.toString() ?? "",
-        hopperExpanded: report.hopper?.expandedCapacity?.toString() ?? "",
-        drivetrainGearing: report.drivetrainGearing ?? "",
-        robotWeight: report.robotWeight?.toString() ?? "",
-        ...sparesFromReport(report.spares),
-        batteries: batteriesFromReport(report.batteries),
-      });
-    }
+  // Hydrate once, while rendering, as soon as the data arrives. Re-hydrating
+  // on every query update would stamp on edits in progress each time another
+  // scout writes to the same event. (Setting state here rather than in an
+  // effect skips a wasted render with the blank form.)
+  if (!loaded && data !== undefined && data !== null) {
+    const initial = ((): FormState => {
+      // Answers saved offline and not sent yet come first: they are newer than
+      // anything the server or the cache has.
+      const held = heldValues<FormState>(`pit:${data.team.number}`);
+      if (held) return held;
+      const report = data.report;
+      if (report) {
+        return {
+          ...report.scoring,
+          ...report.climb,
+          drivetrainBase: report.drivetrain.split(" — ")[0] ?? "",
+          drivetrainDetail: report.drivetrain.split(" — ").slice(1).join(" — "),
+          underTrench: report.underTrench,
+          overBump: report.overBump,
+          robotNotes: report.robotNotes,
+          otherNotes: report.otherNotes,
+          hopperRoof: report.hopper?.roof ?? "",
+          hopperCapacity: report.hopper?.capacity?.toString() ?? "",
+          hopperExpanded: report.hopper?.expandedCapacity?.toString() ?? "",
+          drivetrainGearing: report.drivetrainGearing ?? "",
+          robotWeight: report.robotWeight?.toString() ?? "",
+          ...sparesFromReport(report.spares),
+          batteries: batteriesFromReport(report.batteries),
+        };
+      }
+      return BLANK;
+    })();
+    setForm(initial);
     setLoaded(true);
-  }, [data, loaded]);
+  }
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
