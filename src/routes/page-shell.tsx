@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
 
+import { NOT_SAVED } from "@/components/loading-text";
+import { useOnline } from "@/lib/offline/status";
+
 /** Consistent heading block for every landing area. */
 export function PageShell({
   title,
@@ -12,15 +15,21 @@ export function PageShell({
   actions?: ReactNode;
   children?: ReactNode;
 }) {
+  // Offline, a page still "Loading…" has nothing on its way: say so.
+  const online = useOnline();
+  const shownTitle = !online && title === "Loading…" ? "Offline" : title;
+  const shownDescription = !online && (description === "Loading…" || title === "Loading…")
+    ? NOT_SAVED
+    : description;
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-2xl font-semibold tracking-tight">
-            {title}
+            {shownTitle}
           </h1>
-          {description ? (
-            <p className="text-muted-foreground mt-1 text-sm">{description}</p>
+          {shownDescription ? (
+            <p className="text-muted-foreground mt-1 text-sm">{shownDescription}</p>
           ) : null}
         </div>
         {actions}

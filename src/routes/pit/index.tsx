@@ -1,8 +1,9 @@
-import { useQuery } from "convex/react";
+import { LoadingText } from "@/components/loading-text";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { PageShell } from "@/routes/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +20,7 @@ const FILTERS: ReadonlyArray<{ value: Filter; label: string }> = [
 ];
 
 export default function PitLandingPage() {
-  const teams = useQuery(api.teams.listWithStatus);
+  const teams = useCachedQuery(api.teams.listWithStatus);
   const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>("todo");
   const [search, setSearch] = useState("");
@@ -73,7 +74,7 @@ export default function PitLandingPage() {
       </div>
 
       {teams === undefined ? (
-        <p className="text-muted-foreground text-sm">Loading…</p>
+        <p className="text-muted-foreground text-sm"><LoadingText /></p>
       ) : shown.length === 0 ? (
         <p className="text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm">
           {filter === "todo" && total > 0

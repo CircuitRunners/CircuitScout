@@ -1,15 +1,16 @@
-import { useQuery } from "convex/react";
+import { LoadingText } from "@/components/loading-text";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { NotesTeamDetail } from "./team-detail";
 import { PageShell } from "@/routes/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 
 export default function NotesTeamsPage() {
-  const teams = useQuery(api.notes.teams);
+  const teams = useCachedQuery(api.notes.teams);
   const [search, setSearch] = useState("");
   // ?team=1002 opens that team, the same link the 2026 page answers to.
   const [params, setParams] = useSearchParams();
@@ -27,7 +28,7 @@ export default function NotesTeamsPage() {
         value={search} onChange={(e) => setSearch(e.target.value)} />
 
       {teams === undefined ? (
-        <p className="text-muted-foreground text-sm">Loading…</p>
+        <p className="text-muted-foreground text-sm"><LoadingText /></p>
       ) : shown.length === 0 ? (
         <p className="text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm">
           {(teams ?? []).length === 0 ? "No teams yet. An admin needs to import an event." : "Nothing matches."}

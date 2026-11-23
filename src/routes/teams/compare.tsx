@@ -1,4 +1,5 @@
-import { useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
 import { X } from "lucide-react";
 import { useSearchParams } from "react-router";
 
@@ -21,8 +22,8 @@ export default function ComparePage() {
     .map((n) => Number.parseInt(n, 10))
     .filter((n) => !Number.isNaN(n));
 
-  const teams = useQuery(api.teams.listWithStatus);
-  const rows = useQuery(
+  const teams = useCachedQuery(api.teams.listWithStatus);
+  const rows = useCachedQuery(
     api.stats.compare,
     selected.length > 0 ? { teamNumbers: selected } : "skip",
   );
@@ -99,7 +100,7 @@ export default function ComparePage() {
           Add two or more teams to compare them.
         </p>
       ) : rows === undefined ? (
-        <p className="text-muted-foreground text-sm">Loading…</p>
+        <p className="text-muted-foreground text-sm"><LoadingText /></p>
       ) : (
         <>
           <CompareTable columns={rows} />

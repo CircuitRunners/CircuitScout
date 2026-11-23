@@ -1,4 +1,4 @@
-import { useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { useMemo } from "react";
 
 import { api } from "../../convex/_generated/api";
@@ -9,7 +9,7 @@ import { api } from "../../convex/_generated/api";
  * started, or TBA has not caught up).
  */
 export function useRanks() {
-  const data = useQuery(api.ranks.forEvent);
+  const data = useCachedQuery(api.ranks.forEvent);
   return useMemo(() => {
     const byTeam = new Map<number, number>();
     for (const row of data ?? []) byTeam.set(row.teamNumber, row.rank);

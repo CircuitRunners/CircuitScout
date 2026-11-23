@@ -1,4 +1,5 @@
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { useOnlineMutation, useOnlineAction } from "@/lib/offline/use-online-mutation";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -61,12 +62,12 @@ const TEAM_OPTIONS = [
  * team, where Default means "whatever the full admin chose".
  */
 export function StatSourcesCard({ isFullAdmin }: { isFullAdmin: boolean }) {
-  const refreshAll = useAction(api.refresh.now);
-  const epa = useQuery(api.statbotics.forEvent);
-  const xp = useQuery(api.match13.forEvent);
-  const choice = useQuery(api.statSite.mine);
-  const setDefault = useMutation(api.statSite.setDefault);
-  const setForTeam = useMutation(api.statSite.setForTeam);
+  const refreshAll = useOnlineAction(api.refresh.now);
+  const epa = useCachedQuery(api.statbotics.forEvent);
+  const xp = useCachedQuery(api.match13.forEvent);
+  const choice = useCachedQuery(api.statSite.mine);
+  const setDefault = useOnlineMutation(api.statSite.setDefault);
+  const setForTeam = useOnlineMutation(api.statSite.setForTeam);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
 

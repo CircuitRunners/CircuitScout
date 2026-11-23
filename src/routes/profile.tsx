@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { api } from "../../convex/_generated/api";
+import { useSignOutAndClear } from "@/lib/offline/use-sign-out";
 import { PageShell } from "./page-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,8 @@ const TIER_LABEL = {
 } as const;
 
 function AccountSecurity({ email }: { email: string }) {
-  const { signIn, signOut } = useAuthActions();
+  const { signIn } = useAuthActions();
+  const signOut = useSignOutAndClear();
   const deleteSelf = useMutation(api.account.deleteSelf);
   const changeEmail = useMutation(api.account.changeEmail);
 

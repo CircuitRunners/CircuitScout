@@ -6,6 +6,9 @@ import {
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useOnline } from "@/lib/offline/status";
+import { cacheKey, readCached, saveResult } from "@/lib/offline/store";
+
 export type Refresher = () => Promise<void>;
 export type Registry = {
   register: (key: string, fn: Refresher) => () => void;
@@ -53,13 +56,34 @@ export function useOnDemand<Q extends FunctionReference<"query">>(
   // the page when results came back from the client's cache.
   const name = getFunctionName(query);
   const argsKey = JSON.stringify(args);
+  // Read through a ref, not a dependency: a card must not reload by itself
+  // each time venue wifi drops and returns. These queries read every report.
+  const online = useOnline();
+  const onlineNow = useRef(online);
+  useEffect(() => {
+    onlineNow.current = online;
+  });
   // State is only set once the query settles, never synchronously.
-  const load = useCallback((isCurrent: () => boolean) =>
-    convex.query(
+  const load = useCallback((isCurrent: () => boolean) => {
+    const saved = cacheKey(name, (JSON.parse(argsKey) as unknown[])[0]);
+    if (!onlineNow.current) {
+      // Offline: the copy saved the last time this card loaded, if there is one.
+      return Promise.resolve().then(() => {
+        if (!isCurrent()) return;
+        const cached = saved === null ? undefined : readCached(saved);
+        if (cached) {
+          setData(cached.result as FunctionReturnType<Q>);
+          setUpdatedAt(cached.savedAt);
+        }
+        setLoading(false);
+      });
+    }
+    return convex.query(
       makeFunctionReference<"query">(name) as Q,
       ...(JSON.parse(argsKey) as OptionalRestArgs<Q>),
     )
       .then((result) => {
+        if (saved !== null) saveResult(name, saved, result);
         if (!isCurrent()) return;
         setData(result);
         setUpdatedAt(Date.now());
@@ -73,7 +97,8 @@ export function useOnDemand<Q extends FunctionReference<"query">>(
       })
       .finally(() => {
         if (isCurrent()) setLoading(false);
-      }), [convex, name, argsKey]);
+      });
+  }, [convex, name, argsKey]);
 
   useEffect(() => {
     let current = true;

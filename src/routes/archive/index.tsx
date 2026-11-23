@@ -1,3 +1,4 @@
+import { LoadingText } from "@/components/loading-text";
 import { useQuery } from "convex/react";
 import { Archive, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -79,7 +80,7 @@ export default function ArchivePage() {
               </div>
             ) : null}
             {events === undefined ? (
-              <p className="text-muted-foreground text-sm">Loading…</p>
+              <p className="text-muted-foreground text-sm"><LoadingText /></p>
             ) : events.length === 0 ? (
               <p className="text-muted-foreground text-sm">Nothing imported yet.</p>
             ) : shown.length === 0 ? (

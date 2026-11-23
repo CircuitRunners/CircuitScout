@@ -1,15 +1,16 @@
-import { useQuery } from "convex/react";
+import { LoadingText } from "@/components/loading-text";
 import { ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { PageShell } from "@/routes/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export default function MatchesPage() {
-  const matches = useQuery(api.matches.listForEvent);
+  const matches = useCachedQuery(api.matches.listForEvent);
   const [search, setSearch] = useState("");
 
   const shown = useMemo(() => {
@@ -39,7 +40,7 @@ export default function MatchesPage() {
       />
 
       {matches === undefined ? (
-        <p className="text-muted-foreground text-sm">Loading…</p>
+        <p className="text-muted-foreground text-sm"><LoadingText /></p>
       ) : shown.length === 0 ? (
         <p className="text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm">
           {matches.length === 0 ? "No schedule imported yet." : "Nothing matches."}

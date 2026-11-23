@@ -1,4 +1,6 @@
-import { useMutation, useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
+import { useOnlineMutation } from "@/lib/offline/use-online-mutation";
 import { Check, GitMerge, ListPlus, Lock, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -16,16 +18,16 @@ import {
 import { Input } from "@/components/ui/input";
 
 export default function PickListsPage() {
-  const mine = useQuery(api.pickLists.listMine);
-  const primary = useQuery(api.pickLists.primary);
-  const orphan = useQuery(api.pickLists.orphanPrimary);
-  const claimOrphan = useMutation(api.pickLists.claimOrphanPrimary);
-  const profile = useQuery(api.profiles.me);
-  const create = useMutation(api.pickLists.create);
-  const remove = useMutation(api.pickLists.remove);
-  const setSubmitted = useMutation(api.pickLists.setSubmitted);
-  const unsubmit = useMutation(api.pickLists.unsubmit);
-  const ensurePrimary = useMutation(api.pickLists.ensurePrimary);
+  const mine = useCachedQuery(api.pickLists.listMine);
+  const primary = useCachedQuery(api.pickLists.primary);
+  const orphan = useCachedQuery(api.pickLists.orphanPrimary);
+  const claimOrphan = useOnlineMutation(api.pickLists.claimOrphanPrimary);
+  const profile = useCachedQuery(api.profiles.me);
+  const create = useOnlineMutation(api.pickLists.create);
+  const remove = useOnlineMutation(api.pickLists.remove);
+  const setSubmitted = useOnlineMutation(api.pickLists.setSubmitted);
+  const unsubmit = useOnlineMutation(api.pickLists.unsubmit);
+  const ensurePrimary = useOnlineMutation(api.pickLists.ensurePrimary);
   const navigate = useNavigate();
   
   const isAnyAdmin =
@@ -34,7 +36,7 @@ export default function PickListsPage() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const syncPrimary = useMutation(api.pickLists.syncPrimary);
+  const syncPrimary = useOnlineMutation(api.pickLists.syncPrimary);
   useEffect(() => {
     void syncPrimary({});
   }, [syncPrimary]);
@@ -71,7 +73,7 @@ export default function PickListsPage() {
         </CardHeader>
         <CardContent>
           {primary === undefined ? (
-            <p className="text-muted-foreground text-sm">Loading…</p>
+            <p className="text-muted-foreground text-sm"><LoadingText /></p>
           ) : primary === null ? (            isAnyAdmin ? (
               <div className="space-y-3">
                 {orphan ? (
@@ -150,7 +152,7 @@ export default function PickListsPage() {
           </div>
 
           {mine === undefined ? (
-            <p className="text-muted-foreground text-sm">Loading…</p>
+            <p className="text-muted-foreground text-sm"><LoadingText /></p>
           ) : mine.length === 0 ? (
             <p className="text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm">
               No lists yet. A new list starts with every team in Uncategorized.

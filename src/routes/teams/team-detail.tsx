@@ -1,4 +1,5 @@
-import { useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
 import type { ReactNode } from "react";
 import { AlertTriangle, BatteryFull, Cog, Package, Pencil, Wrench } from "lucide-react";
 
@@ -66,7 +67,7 @@ export function TeamDetail({
   /** Rendered at the bottom of the modal. The pick list passes its note editor. */
   footer?: ReactNode;
 }) {
-  const data = useQuery(
+  const data = useCachedQuery(
     api.teams.detail,
     teamNumber === null ? "skip" : { teamNumber },
   );
@@ -75,15 +76,15 @@ export function TeamDetail({
   const rating = teamNumber === null ? null : (ratings.byTeam.get(teamNumber) ?? null);
   const ranks = useRanks();
   const rank = teamNumber === null ? null : (ranks.byTeam.get(teamNumber) ?? null);
-  const event = useQuery(api.events.active);
-  const attention = useQuery(api.attention.forEvent);
+  const event = useCachedQuery(api.events.active);
+  const attention = useCachedQuery(api.attention.forEvent);
   const mine = (attention ?? []).filter((row) => row.teamNumber === teamNumber);
 
   return (
     <Dialog open={teamNumber !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
         {data === undefined ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <p className="text-muted-foreground text-sm"><LoadingText /></p>
         ) : data === null ? (
           <p className="text-muted-foreground text-sm">Team not found.</p>
         ) : (

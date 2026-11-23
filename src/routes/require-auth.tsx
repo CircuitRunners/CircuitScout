@@ -1,4 +1,4 @@
-import { useConvexAuth, useAction, useQuery } from "convex/react";
+import { useAction } from "convex/react";
 import { useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { toast } from "sonner";
@@ -11,6 +11,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingWheel } from "@/components/loading-wheel";
+import { NeedsConnection } from "@/components/needs-connection";
+import { useOnline } from "@/lib/offline/status";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { useGate } from "@/lib/offline/use-gate";
 
 function FullPageSpinner() {
   return (
@@ -102,31 +106,57 @@ function ProfileSetup({ existingName }: { existingName: string | null }) {
   );
 }
 
-function RequireProfile() {
-  const profile = useQuery(api.profiles.me);
+const CONNECT_FIRST = {
+  title: "Connect once to sign in",
+  description:
+    "Sign in while this device has a connection. After that, CircuitScout opens offline.",
+};
 
-  if (profile === undefined) return <FullPageSpinner />;
+function RequireProfile() {
+  // Offline this is the copy saved on this device (offline plan, section 6).
+  const profile = useCachedQuery(api.profiles.me);
+  const online = useOnline();
+
+  if (profile === undefined) {
+    return online ? <FullPageSpinner /> : <NeedsConnection fullPage {...CONNECT_FIRST} />;
+  }
   // Accounts created before this gate existed have no firstName; prompt them
   // too rather than leaving their reports signed "Scout".
   if (profile === null || !profile.firstName) {
+    // Finishing a profile is a server call.
+    if (!online) {
+      return (
+        <NeedsConnection
+          fullPage
+          title="Connect to finish setting up"
+          description="Your name and team number are saved on the server."
+        />
+      );
+    }
     return <ProfileSetup existingName={profile?.displayName ?? null} />;
   }
   return <Outlet />;
 }
 
 export function RequireAuth() {
-  const { isLoading, isAuthenticated } = useConvexAuth();
+  // See src/lib/offline/session.ts for the five states.
+  const gate = useGate();
   const location = useLocation();
 
-  if (isLoading) return <FullPageSpinner />;
-  if (!isAuthenticated) {
+  if (gate === "loading") return <FullPageSpinner />;
+  if (gate === "signed-out") {
     return <Navigate to="/sign-in" replace state={{ from: location.pathname }} />;
   }
+  if (gate === "connect-first") return <NeedsConnection fullPage {...CONNECT_FIRST} />;
+  // "live", or "offline": no connection, and this device holds both a sign-in
+  // token and that same user's cached data.
   return <RequireProfile />;
 }
 
 export function RequireAdmin() {
-  const profile = useQuery(api.profiles.me);
+  // Offline the role is the cached one. It only decides which pages open;
+  // Convex still checks every write when it reaches the server.
+  const profile = useCachedQuery(api.profiles.me);
   if (profile === undefined) return <FullPageSpinner />;
   if (profile?.role !== "admin" && profile?.role !== "teamAdmin") {
     return <Navigate to="/" replace />;

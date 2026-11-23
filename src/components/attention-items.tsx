@@ -1,4 +1,5 @@
-import { useMutation, useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { useOnlineMutation } from "@/lib/offline/use-online-mutation";
 import { AlertTriangle, Check, EyeOff, Settings, Wrench } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -45,8 +46,8 @@ export function AttentionCard({
   /** For lists that are not live subscriptions, to reload after a change. */
   onSettled?: () => void;
 }) {
-  const settle = useMutation(api.attention.settle);
-  const permissions = useQuery(api.attention.permissions);
+  const settle = useOnlineMutation(api.attention.settle);
+  const permissions = useCachedQuery(api.attention.permissions);
   const [mode, setMode] = useState<"none" | "dismissed" | "resolved" | "spare">("none");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);

@@ -1,9 +1,13 @@
+import { LoadingText } from "@/components/loading-text";
 import { useQuery } from "convex/react";
 import { ChevronRight, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
+import { useMatchRobots } from "@/lib/offline/forms";
+import { useOnline } from "@/lib/offline/status";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { PageShell } from "@/routes/page-shell";
 import { STATION_LABELS, type Station } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -28,12 +32,20 @@ function MatchRobots({
   highlight: number | null;
   assignedTeam: number | null;
 }) {
-  const data = useQuery(api.matches.teamsInMatch, { matchNumber });
+  // Offline: the saved copy, or rebuilt from the saved schedule and team list.
+  const data = useMatchRobots(matchNumber);
+  const online = useOnline();
   const counts = useQuery(api.notes.countsForMatch, { matchNumber });
   const navigate = useNavigate();
 
   if (data === undefined || data === null) {
-    return <p className="text-muted-foreground p-3 text-sm">Loading…</p>;
+    return (
+      <p className="text-muted-foreground p-3 text-sm">
+        {data === undefined && !online
+          ? "Not saved on this device. Open the Dashboard once while online."
+          : "Loading…"}
+      </p>
+    );
   }
 
   const countFor = (teamId: string) =>
@@ -71,6 +83,8 @@ function MatchRobots({
                 <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
                   {team.number === assignedTeam ? "yours" : team.nickname}
                 </span>
+                {/* Counts are live only: offline a 0 would be a guess. */}
+                {counts === undefined && !online ? null : (
                 <Badge
                   variant={count === 0 ? "outline" : mine ? "secondary" : "default"}
                   className="shrink-0 tabular-nums"
@@ -83,6 +97,7 @@ function MatchRobots({
                   {count}
                   {mine ? " ✓" : ""}
                 </Badge>
+                )}
               </button>
             );
           })()
@@ -97,6 +112,9 @@ function MatchRobots({
         {column(data.red, "Red", "text-red-600 dark:text-red-400")}
         {column(data.blue, "Blue", "text-blue-600 dark:text-blue-400")}
       </div>
+      {counts === undefined && !online ? (
+        <p className="text-muted-foreground text-xs">Report counts are not shown offline.</p>
+      ) : null}
       <p className="text-muted-foreground text-xs">
         The number is how many scouts have written notes on that robot. A tick
         means one of them is you. More than one is fine — a second look is a
@@ -107,12 +125,12 @@ function MatchRobots({
 }
 
 export default function NotesScoutLandingPage() {
-  const matches = useQuery(api.matches.listForEvent);
-  const myNotes = useQuery(api.notes.mine);
+  const matches = useCachedQuery(api.matches.listForEvent);
+  const myNotes = useCachedQuery(api.notes.mine);
   const navigate = useNavigate();
   const [open, setOpen] = useState<number | null>(null);
   const [matchSearch, setMatchSearch] = useState("");
-  const assignments = useQuery(api.notes.assignments);
+  const assignments = useCachedQuery(api.notes.assignments);
   const assignedByMatch = new Map(
     (assignments?.assigned ?? []).map((a) => [a.matchNumber, a]),
   );
@@ -232,7 +250,7 @@ export default function NotesScoutLandingPage() {
         </CardHeader>
         <CardContent className="space-y-2">
           {myNotes === undefined ? (
-            <p className="text-muted-foreground text-sm">Loading…</p>
+            <p className="text-muted-foreground text-sm"><LoadingText /></p>
           ) : myNotes.length === 0 ? (
             <p className="text-muted-foreground text-sm">Nothing written yet.</p>
           ) : (

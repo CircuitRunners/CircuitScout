@@ -1,4 +1,6 @@
-import { useMutation, useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
+import { useOnlineMutation } from "@/lib/offline/use-online-mutation";
 import { ArrowLeft } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -23,7 +25,7 @@ type Report = {
 };
 
 function useMaxMatch() {
-  const matches = useQuery(api.matches.listForEvent);
+  const matches = useCachedQuery(api.matches.listForEvent);
   return (matches ?? []).reduce((max, m) => Math.max(max, m.matchNumber), 0);
 }
 
@@ -37,12 +39,12 @@ export function AssignDialog({
   displayName: string;
   onClose: () => void;
 }) {
-  const shifts = useQuery(
+  const shifts = useCachedQuery(
     api.assignments.forProfile,
     profileId ? { profileId } : "skip",
   );
-  const create = useMutation(api.assignments.create);
-  const remove = useMutation(api.assignments.remove);
+  const create = useOnlineMutation(api.assignments.create);
+  const remove = useOnlineMutation(api.assignments.remove);
   const maxMatch = useMaxMatch();
   const [busy, setBusy] = useState(false);
 
@@ -77,7 +79,7 @@ export function AssignDialog({
             <div className="space-y-2 border-t pt-4">
               <h3 className="text-sm font-medium">{displayName}'s shifts</h3>
               {shifts === undefined ? (
-                <p className="text-muted-foreground text-sm">Loading…</p>
+                <p className="text-muted-foreground text-sm"><LoadingText /></p>
               ) : shifts.length === 0 ? (
                 <p className="text-muted-foreground text-sm">No shifts yet.</p>
               ) : (
@@ -116,7 +118,7 @@ export function BatchAssignDialog({
   profiles: { _id: Id<"profiles">; displayName: string; teamNumber?: number }[];
   onClose: () => void;
 }) {
-  const createMany = useMutation(api.assignments.createMany);
+  const createMany = useOnlineMutation(api.assignments.createMany);
   const maxMatch = useMaxMatch();
   const [selected, setSelected] = useState<Id<"profiles">[]>([]);
   const [search, setSearch] = useState("");

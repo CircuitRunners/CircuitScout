@@ -1,4 +1,5 @@
-import { useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
 import type { ReactNode } from "react";
 
 import { api } from "../../../convex/_generated/api";
@@ -23,7 +24,7 @@ export function NotesTeamDetail({
   /** Rendered at the bottom. The pick list passes its note editor. */
   footer?: ReactNode;
 }) {
-  const data = useQuery(api.notes.forTeam, teamNumber === null ? "skip" : { teamNumber });
+  const data = useCachedQuery(api.notes.forTeam, teamNumber === null ? "skip" : { teamNumber });
   const ratings = useRatings();
   const rating = teamNumber === null ? null : (ratings.byTeam.get(teamNumber) ?? null);
   const ranks = useRanks();
@@ -33,7 +34,7 @@ export function NotesTeamDetail({
     <Dialog open={teamNumber !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
         {data === undefined ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <p className="text-muted-foreground text-sm"><LoadingText /></p>
         ) : data === null ? (
           <p className="text-muted-foreground text-sm">Team not found.</p>
         ) : (

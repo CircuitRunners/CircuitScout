@@ -1,4 +1,4 @@
-import { useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { ArrowLeft } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -129,10 +129,10 @@ function toPath(pts: Pt[]): string {
 }
 
 export default function PlotPage() {
-  const teams = useQuery(api.teams.listWithStatus);
-  const stats = useQuery(api.stats.forEvent);
-  const epaData = useQuery(api.statbotics.forEvent);
-  const xpData = useQuery(api.match13.forEvent);
+  const teams = useCachedQuery(api.teams.listWithStatus);
+  const stats = useCachedQuery(api.stats.forEvent);
+  const epaData = useCachedQuery(api.statbotics.forEvent);
+  const xpData = useCachedQuery(api.match13.forEvent);
   const ranks = useRanks();
   const navigate = useNavigate();
 

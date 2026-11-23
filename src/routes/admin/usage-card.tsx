@@ -1,3 +1,4 @@
+import { LoadingText } from "@/components/loading-text";
 import { useConvex } from "convex/react";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -108,7 +109,7 @@ export function UsageByTeamCard({ myTeamNumber }: { myTeamNumber: number | undef
         {error ? (
           <p className="text-destructive text-sm">Couldn't load usage. {error}</p>
         ) : events === null ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <p className="text-muted-foreground text-sm"><LoadingText /></p>
         ) : events.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             No scouting yet. Numbers appear once reports come in.

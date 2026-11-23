@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { ArrowLeft, Camera, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -7,6 +7,12 @@ import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { compressImage } from "@/lib/compress-image";
+import { HeldNotice } from "@/components/held-notice";
+import { NeedsConnection } from "@/components/needs-connection";
+import { usePitFormData } from "@/lib/offline/forms";
+import { HeldFormNotice } from "@/components/held";
+import { forgetHeld, heldValues, holdSubmission } from "@/lib/offline/held";
+import { useOnline } from "@/lib/offline/status";
 import { CapabilityCheck } from "@/components/scouting/capability-check";
 import { PageShell } from "@/routes/page-shell";
 import { Button } from "@/components/ui/button";
@@ -255,10 +261,10 @@ export default function PitFormPage() {
   const navigate = useNavigate();
   const teamNumber = Number.parseInt(params.teamNumber ?? "", 10);
 
-  const data = useQuery(
-    api.pit.forTeamNumber,
-    Number.isNaN(teamNumber) ? "skip" : { teamNumber },
-  );
+  // Online this is pit.forTeamNumber, unchanged. Offline it is the saved copy,
+  // or a blank form for a team the saved list says nobody has scouted.
+  const { data, unavailable, blocked } = usePitFormData(teamNumber);
+  const online = useOnline();
   const upsert = useMutation(api.pit.upsert);
   const generateUploadUrl = useMutation(api.pit.generateUploadUrl);
 
@@ -275,6 +281,14 @@ export default function PitFormPage() {
   // progress each time another scout writes to the same event.
   useEffect(() => {
     if (loaded || data === undefined || data === null) return;
+    // Answers saved offline and not sent yet come first: they are newer than
+    // anything the server or the cache has.
+    const held = heldValues<FormState>(`pit:${data.team.number}`);
+    if (held) {
+      setForm(held);
+      setLoaded(true);
+      return;
+    }
     const report = data.report;
     if (report) {
       setForm({
@@ -357,6 +371,20 @@ export default function PitFormPage() {
       });
       return;
     }
+    if (!online && !photoFile) {
+      // No connection: hand the report to the held list rather than waiting
+      // here. It sends when the connection returns, while the app stays open.
+      const team = data.team;
+      holdSubmission({
+        key: `pit:${team.number}`,
+        label: `Team ${team.number} pit report`,
+        to: `/pit/${team.number}`,
+        values: form,
+        send: () => upsert({ teamId: team._id, ...draft, photoId: null }),
+      });
+      void navigate("/pit");
+      return;
+    }
     setSaving(true);
     try {
       let photoId: Id<"_storage"> | null = null;
@@ -373,6 +401,7 @@ export default function PitFormPage() {
       }
 
       await upsert({ teamId: data.team._id, ...draft, photoId });
+      forgetHeld(`pit:${data.team.number}`);
 
       if (draftMissing.length === 0) {
         toast.success(`Saved team ${data.team.number}`);
@@ -394,6 +423,27 @@ export default function PitFormPage() {
   if (Number.isNaN(teamNumber)) {
     return <PageShell title="Pit Scouting" description="That is not a team number." />;
   }
+  if (blocked || (data === undefined && unavailable)) {
+    return (
+      <PageShell
+        title="Pit Scouting"
+        actions={
+          <Button variant="outline" onClick={() => void navigate("/pit")}>
+            <ArrowLeft className="size-4" />
+            Back
+          </Button>
+        }
+      >
+        {blocked ? (
+          // pit.upsert patches the existing report: a blank form saved from
+          // here would overwrite answers this device does not have.
+          <NeedsConnection title="Already scouted" description={`Team ${teamNumber} has a pit report that is not saved on this device. Connect to edit it.`} />
+        ) : (
+          <NeedsConnection title="Not saved on this device" description="Open the Dashboard once while online, and this form will open offline." />
+        )}
+      </PageShell>
+    );
+  }
   if (data === undefined) {
     return <PageShell title="Pit Scouting" description="Loading…" />;
   }
@@ -411,7 +461,8 @@ export default function PitFormPage() {
     );
   }
 
-  const existingPhoto = photoPreview ?? data.photoUrl;
+  // A saved photo lives on the server and cannot be shown offline.
+  const existingPhoto = photoPreview ?? (online ? data.photoUrl : null);
   const savedStatus = pitStatus(data.report);
   const savedMissing = data.report ? pitMissing(data.report) : [];
 
@@ -432,6 +483,7 @@ export default function PitFormPage() {
         </Button>
       }
     >
+      <HeldFormNotice heldKey={`pit:${data.team.number}`} />
       <Card>
         <CardHeader><CardTitle>Scoring capability</CardTitle></CardHeader>
         <CardContent className="space-y-2">
@@ -753,11 +805,17 @@ export default function PitFormPage() {
             className="hidden"
             onChange={(e) => void pickPhoto(e.target.files?.[0])}
           />
-          <Button variant="outline" className="h-12 w-full"
+          <Button variant="outline" className="h-12 w-full" disabled={!online}
             onClick={() => fileInput.current?.click()}>
             <Camera className="size-4" />
             {existingPhoto ? "Replace photo" : "Take photo"}
           </Button>
+          {online ? null : (
+            <p className="text-muted-foreground text-xs">
+              Photos need a connection. Save the rest now and add the photo when you are back online.
+              {data.photoUrl ? " The saved photo is not shown offline." : ""}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -784,10 +842,11 @@ export default function PitFormPage() {
           Still needed: {draftMissing.join(", ")}.
         </p>
       ) : null}
+      <HeldNotice saving={saving} />
       <Button className="h-14 w-full text-base" disabled={saving}
         onClick={() => void save()}>
         {saving ? <LoadingWheel className="size-4" /> : null}
-        {data.report ? "Update report" : "Submit report"}
+        {!online ? "Save when back online" : data.report ? "Update report" : "Submit report"}
       </Button>
     </PageShell>
   );

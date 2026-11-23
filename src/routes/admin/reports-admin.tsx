@@ -1,4 +1,6 @@
-import { useMutation, useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
+import { useOnlineMutation } from "@/lib/offline/use-online-mutation";
 import {
   AlertTriangle, EyeOff, History, Pencil, RotateCcw, Trash2
 } from "lucide-react";
@@ -43,10 +45,10 @@ type Row = {
 };
 
 function EditHistory({ reportId }: { reportId: string }) {
-  const history = useQuery(api.admin.editHistory, {
+  const history = useCachedQuery(api.admin.editHistory, {
     reportId: reportId as Id<"matchReports">,
   });
-  if (history === undefined) return <p className="text-xs">Loading…</p>;
+  if (history === undefined) return <p className="text-xs"><LoadingText /></p>;
   if (history.length === 0) return <p className="text-xs">No edits.</p>;
   return (
     <ul className="space-y-1 text-xs">
@@ -64,10 +66,10 @@ function EditHistory({ reportId }: { reportId: string }) {
 }
 
 function ReportRow({ row }: { row: Row }) {
-  const setAutoWinner = useMutation(api.admin.setAutoWinner);
-  const deleteReport = useMutation(api.admin.deleteReport);
-  const dismissFlag = useMutation(api.admin.dismissFlag);
-  const restoreFlag = useMutation(api.admin.restoreFlag);
+  const setAutoWinner = useOnlineMutation(api.admin.setAutoWinner);
+  const deleteReport = useOnlineMutation(api.admin.deleteReport);
+  const dismissFlag = useOnlineMutation(api.admin.dismissFlag);
+  const restoreFlag = useOnlineMutation(api.admin.restoreFlag);
 
   const [action, setAction] = useState<"none" | "winner" | "delete">("none");
   const [reason, setReason] = useState("");
@@ -361,7 +363,7 @@ export function ManageReports() {
 export function PitReportsAdmin() {
   const { data: rows, loading, updatedAt, refresh } =
     useOnDemand("pit", api.admin.pitReports, {});
-  const remove = useMutation(api.admin.deletePitReport);
+  const remove = useOnlineMutation(api.admin.deletePitReport);
   const [openId, setOpenId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [confirmText, setConfirmText] = useState("");
@@ -469,7 +471,7 @@ export function PitReportsAdmin() {
 }
 
 export function DeletionLog() {
-  const rows = useQuery(api.admin.deletions, {});
+  const rows = useCachedQuery(api.admin.deletions, {});
   const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
@@ -483,7 +485,7 @@ export function DeletionLog() {
       </CardHeader>
       <CardContent className="space-y-2">
         {rows === undefined ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <p className="text-muted-foreground text-sm"><LoadingText /></p>
         ) : rows.length === 0 ? (
           <p className="text-muted-foreground text-sm">Nothing has been deleted.</p>
         ) : (

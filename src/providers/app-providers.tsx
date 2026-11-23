@@ -3,6 +3,8 @@ import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
 import { ThemeProvider } from "next-themes";
 
+import { OfflineProvider } from "@/lib/offline/offline-provider";
+
 const convexUrl = import.meta.env.VITE_CONVEX_URL;
 
 if (!convexUrl) {
@@ -21,7 +23,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
       enableSystem
       disableTransitionOnChange
     >
-      <ConvexAuthProvider client={convex}>{children}</ConvexAuthProvider>
+      <ConvexAuthProvider client={convex}>
+        <OfflineProvider>{children}</OfflineProvider>
+      </ConvexAuthProvider>
     </ThemeProvider>
   );
 }

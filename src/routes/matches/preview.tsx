@@ -1,4 +1,5 @@
-import { useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { Link, useParams } from "react-router";
 
@@ -95,11 +96,11 @@ export default function MatchPreviewPage() {
   const ratings = useRatings();
   const params = useParams();
   const matchNumber = Number.parseInt(params.matchNumber ?? "", 10);
-  const data = useQuery(
+  const data = useCachedQuery(
     api.stats.forMatch,
     Number.isNaN(matchNumber) ? "skip" : { matchNumber },
   );
-  const predictions = useQuery(
+  const predictions = useCachedQuery(
     api.predictions.forMatch,
     data ? { matchKey: data.tbaMatchKey } : "skip",
   );
@@ -187,7 +188,7 @@ export default function MatchPreviewPage() {
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-6">
             {ratings.loading || predictions === undefined ? (
-              <p className="text-muted-foreground text-sm">Loading…</p>
+              <p className="text-muted-foreground text-sm"><LoadingText /></p>
             ) : prediction === null ? (
               <p className="text-muted-foreground text-sm">
                 No {ratings.siteName} prediction for this match yet — an admin can

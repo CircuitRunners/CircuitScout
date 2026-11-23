@@ -5,6 +5,7 @@ import { AuthLayout } from "./auth-layout";
 import { RequireAdmin, RequireAuth } from "./require-auth";
 import { RootLayout } from "./root-layout";
 import { SeasonPage } from "./seasons";
+import { OnlineOnly } from "./online-only";
 
 import ArchivePage from "./archive/index";
 import ArchiveEventPage from "./archive/event";
@@ -36,7 +37,15 @@ export const router = createBrowserRouter([
             element: <AppLayout />,
             children: [
               { index: true, element: <SeasonPage page="dashboard" /> },
-              { path: "profile", element: <ProfilePage /> },
+              {
+                // Not cached: offline these say "Needs a connection".
+                element: <OnlineOnly />,
+                children: [
+                  { path: "profile", element: <ProfilePage /> },
+                  { path: "archive", element: <ArchivePage /> },
+                  { path: "archive/:eventKey", element: <ArchiveEventPage /> },
+                ],
+              },
 
               { path: "pit", element: <SeasonPage page="pit" /> },
               { path: "pit/:teamNumber", element: <SeasonPage page="pitForm" /> },
@@ -49,8 +58,6 @@ export const router = createBrowserRouter([
               { path: "teams/plot", element: <SeasonPage page="teamsPlot" /> },
 
               { path: "matches", element: <SeasonPage page="matches" /> },
-              { path: "archive", element: <ArchivePage /> },
-              { path: "archive/:eventKey", element: <ArchiveEventPage /> },
               { path: "matches/:matchNumber", element: <SeasonPage page="matchPreview" /> },
 
               { path: "picklists", element: <SeasonPage page="pickLists" /> },

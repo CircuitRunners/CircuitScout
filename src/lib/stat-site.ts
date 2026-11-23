@@ -1,4 +1,4 @@
-import { useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { useMemo } from "react";
 
 import { api } from "../../convex/_generated/api";
@@ -30,10 +30,10 @@ export const STAT_SITE_METRIC: Record<StatSite, string> = {
  * The data plot does not use this: it offers both, whatever is chosen.
  */
 export function useRatings() {
-  const choice = useQuery(api.statSite.mine);
+  const choice = useCachedQuery(api.statSite.mine);
   const site = choice?.effective;
-  const epa = useQuery(api.statbotics.forEvent, site === "statbotics" ? {} : "skip");
-  const xp = useQuery(api.match13.forEvent, site === "match13" ? {} : "skip");
+  const epa = useCachedQuery(api.statbotics.forEvent, site === "statbotics" ? {} : "skip");
+  const xp = useCachedQuery(api.match13.forEvent, site === "match13" ? {} : "skip");
 
   const byTeam = useMemo(() => {
     const map = new Map<number, Rating>();

@@ -1,3 +1,6 @@
+import { useOnline } from "@/lib/offline/status";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { useOnlineMutation } from "@/lib/offline/use-online-mutation";
 import {
   DndContext, DragOverlay, PointerSensor, TouchSensor, closestCorners,
   pointerWithin, useDroppable, useSensor, useSensors,
@@ -6,7 +9,6 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Check, GripVertical, MessageSquare, MessageSquareWarning } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
@@ -40,7 +42,7 @@ type Row = {
 };
 
 function PickNote({ row, canEdit }: { row: Row; canEdit: boolean }) {
-  const setNote = useMutation(api.entries.setNote);
+  const setNote = useOnlineMutation(api.entries.setNote);
   const [text, setText] = useState(row.note);
   const [saving, setSaving] = useState(false);
   const required = row.tier === "t1" || row.tier === "dnp";
@@ -146,12 +148,18 @@ export default function NotesPickListBoardPage() {
   const params = useParams();
   const listId = params.listId as Id<"pickLists"> | undefined;
 
-  const list = useQuery(api.pickLists.get, listId ? { listId } : "skip");
-  const entries = useQuery(api.entries.forList, listId ? { listId } : "skip");
-  const teams = useQuery(api.notes.teams);
-  const move = useMutation(api.entries.move);
-  const picked = useQuery(api.picked.forEvent);
-  const togglePicked = useMutation(api.picked.toggle);
+  const online = useOnline();
+  const storedList = useCachedQuery(api.pickLists.get, listId ? { listId } : "skip");
+  // Offline the board is view only: every edit path below keys off canEdit.
+  const list = useMemo(
+    () => (storedList && !online ? { ...storedList, canEdit: false } : storedList),
+    [storedList, online],
+  );
+  const entries = useCachedQuery(api.entries.forList, listId ? { listId } : "skip");
+  const teams = useCachedQuery(api.notes.teams);
+  const move = useOnlineMutation(api.entries.move);
+  const picked = useCachedQuery(api.picked.forEvent);
+  const togglePicked = useOnlineMutation(api.picked.toggle);
 
   const [dragging, setDragging] = useState<Row | null>(null);
   const [overTier, setOverTier] = useState<Tier | null>(null);

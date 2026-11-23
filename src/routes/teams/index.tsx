@@ -1,9 +1,10 @@
-import { useQuery } from "convex/react";
+import { LoadingText } from "@/components/loading-text";
 import { ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { compareRanks, useRanks } from "@/lib/ranks";
 import { PageShell } from "@/routes/page-shell";
 import { TeamDetail } from "./team-detail";
@@ -39,8 +40,8 @@ const TEAM_SORTS: ReadonlyArray<{ value: TeamSort; label: string }> = [
 ];
 
 export default function TeamsPage() {
-  const teams = useQuery(api.teams.listWithStatus);
-  const attention = useQuery(api.attention.forEvent);
+  const teams = useCachedQuery(api.teams.listWithStatus);
+  const attention = useCachedQuery(api.attention.forEvent);
   // The open team lives in the URL, not in a store: it makes a team shareable
   // and the back button correct.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -48,7 +49,7 @@ export default function TeamsPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<TeamSort>("number");
   // Only subscribed while a stat sort is chosen; number and rank need none.
-  const stats = useQuery(api.stats.forEvent, sort === "number" || sort === "rank" ? "skip" : {});
+  const stats = useCachedQuery(api.stats.forEvent, sort === "number" || sort === "rank" ? "skip" : {});
   const ranks = useRanks();
 
   const openParam = searchParams.get("team");
@@ -191,7 +192,7 @@ export default function TeamsPage() {
       </div>
 
       {teams === undefined ? (
-        <p className="text-muted-foreground text-sm">Loading…</p>
+        <p className="text-muted-foreground text-sm"><LoadingText /></p>
       ) : shown.length === 0 ? (
         <p className="text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm">
           {teams.length === 0

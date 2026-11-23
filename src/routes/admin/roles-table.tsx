@@ -1,4 +1,7 @@
-import { useMutation, useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
+import { useOnlineMutation } from "@/lib/offline/use-online-mutation";
+import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { ChevronDown, TriangleAlert, Trash2, UserMinus, UserPen, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -59,7 +62,7 @@ function EditScoutPanel({
   const { signIn } = useAuthActions();
   const myEmail = useQuery(api.account.myEmail);
   const currentEmail = useQuery(api.account.scoutEmail, { profileId: profile._id });
-  const update = useMutation(api.account.adminUpdateScout);
+  const update = useOnlineMutation(api.account.adminUpdateScout);
 
   // Null means "not edited yet", so the live query can fill the field without
   // overwriting what is being typed.
@@ -179,14 +182,14 @@ function EditScoutPanel({
 }
 
 export function RolesTable() {
-  const profiles = useQuery(api.profiles.list);
-  const me = useQuery(api.profiles.me);
-  const setRole = useMutation(api.profiles.setRole);
-  const setWeightTier = useMutation(api.profiles.setWeightTier);
-  const resolveJoin = useMutation(api.profiles.resolveJoin);
-  const departures = useQuery(api.profiles.departures);
-  const dismissDeparture = useMutation(api.profiles.dismissDeparture);
-  const deleteScout = useMutation(api.account.deleteScout);
+  const profiles = useCachedQuery(api.profiles.list);
+  const me = useCachedQuery(api.profiles.me);
+  const setRole = useOnlineMutation(api.profiles.setRole);
+  const setWeightTier = useOnlineMutation(api.profiles.setWeightTier);
+  const resolveJoin = useOnlineMutation(api.profiles.resolveJoin);
+  const departures = useCachedQuery(api.profiles.departures);
+  const dismissDeparture = useOnlineMutation(api.profiles.dismissDeparture);
+  const deleteScout = useOnlineMutation(api.account.deleteScout);
 
   const [open, setOpen] = useState<PendingJoin | null>(null);
   const [openName, setOpenName] = useState("");
@@ -401,7 +404,7 @@ export function RolesTable() {
           ))}
 
           {profiles === undefined ? (
-            <p className="text-muted-foreground text-sm">Loading…</p>
+            <p className="text-muted-foreground text-sm"><LoadingText /></p>
           ) : visible.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               {scoutSearch.trim() === ""

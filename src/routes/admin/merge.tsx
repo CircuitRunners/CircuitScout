@@ -1,4 +1,6 @@
-import { useMutation, useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
+import { useOnlineMutation } from "@/lib/offline/use-online-mutation";
 import { AlertTriangle, ArrowLeft, Users } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -17,8 +19,8 @@ import { SCOUT_WEIGHTS } from "@/lib/scoring";
 import { TIER_LABELS } from "@/lib/types";
 
 export default function AdminMergePage() {
-  const data = useQuery(api.merge.preview);
-  const apply = useMutation(api.merge.apply);
+  const data = useCachedQuery(api.merge.preview);
+  const apply = useOnlineMutation(api.merge.apply);
 
   const [includeNotes, setIncludeNotes] = useState(true);
   const [confirm, setConfirm] = useState("");
@@ -64,7 +66,7 @@ export default function AdminMergePage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {data === undefined ? (
-            <p className="text-muted-foreground text-sm">Loading…</p>
+            <p className="text-muted-foreground text-sm"><LoadingText /></p>
           ) : (
             <>
               {data.submitters.length === 0 ? (

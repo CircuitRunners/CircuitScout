@@ -1,8 +1,9 @@
-import { useQuery } from "convex/react";
+import { LoadingText } from "@/components/loading-text";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { GENERIC_PIT_LABELS } from "../../../convex/lib/genericPit";
 import { PageShell } from "@/routes/page-shell";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +20,7 @@ const FILTERS: ReadonlyArray<{ value: Filter; label: string }> = [
 ];
 
 export default function NotesPitLandingPage() {
-  const teams = useQuery(api.notes.teams);
+  const teams = useCachedQuery(api.notes.teams);
   const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>("todo");
   const [search, setSearch] = useState("");
@@ -61,7 +62,7 @@ export default function NotesPitLandingPage() {
       </div>
 
       {teams === undefined ? (
-        <p className="text-muted-foreground text-sm">Loading…</p>
+        <p className="text-muted-foreground text-sm"><LoadingText /></p>
       ) : shown.length === 0 ? (
         <p className="text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm">
           {filter === "todo" && total > 0

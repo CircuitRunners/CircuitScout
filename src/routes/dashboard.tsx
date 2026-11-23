@@ -1,7 +1,9 @@
-import { useQuery } from "convex/react";
 import { Link } from "react-router";
 
 import { api } from "../../convex/_generated/api";
+import { HeldList } from "@/components/held";
+import { OfflineReady } from "@/components/offline-ready";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { EventExport } from "@/components/event-export";
 import { StatLinks } from "@/components/stat-links";
 import { ShiftRow } from "@/components/shift-picker";
@@ -29,11 +31,11 @@ function Metric({
 }
 
 export default function DashboardPage() {
-  const event = useQuery(api.events.active);
-  const teams = useQuery(api.teams.listWithStatus);
-  const matches = useQuery(api.matches.listForEvent);
-  const assignments = useQuery(api.assignments.mine);
-  const slots = useQuery(api.stats.matchCoverage);
+  const event = useCachedQuery(api.events.active);
+  const teams = useCachedQuery(api.teams.listWithStatus);
+  const matches = useCachedQuery(api.matches.listForEvent);
+  const assignments = useCachedQuery(api.assignments.mine);
+  const slots = useCachedQuery(api.stats.matchCoverage);
 
   const total = teams?.length ?? 0;
   const pitDone = teams?.filter((t) => t.pitScouted).length ?? 0;
@@ -71,6 +73,14 @@ export default function DashboardPage() {
         </div>
       }
     >
+      <OfflineReady
+        lists={[
+          { fn: "events:active", missing: "Waiting for the event." },
+          { fn: "matches:listForEvent", missing: "Waiting for the match schedule." },
+          { fn: "teams:listWithStatus", missing: "Waiting for the team list." },
+        ]}
+      />
+      <HeldList />
       {assignments?.upNext ? (
         <Card>
           <CardHeader>

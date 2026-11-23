@@ -1,25 +1,17 @@
-import { useConvex } from "convex/react";
-import { useEffect, useState } from "react";
 import { CloudOff, Cloud } from "lucide-react";
+
+import { useOnline } from "@/lib/offline/status";
 
 /**
  * Venue wifi is unreliable and Convex is websocket-backed. A scout must be
  * able to see they are offline BEFORE keying in six minutes of match data.
+ *
+ * Reads useOnline(), which trusts the Convex socket rather than
+ * navigator.onLine alone: wifi that is joined but passes no traffic shows
+ * Offline here, where it used to show Live.
  */
 export function ConnectionIndicator() {
-  const convex = useConvex();
-  const [online, setOnline] = useState(true);
-
-  useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    update();
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
-    return () => {
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
-    };
-  }, [convex]);
+  const online = useOnline();
 
   if (online) {
     return (

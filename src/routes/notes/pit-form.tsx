@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { ArrowLeft, Camera, Plus, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useRef, useState } from "react";
@@ -22,6 +22,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MenuSelect } from "@/components/menu-select";
 import { LoadingWheel } from "@/components/loading-wheel";
+import { HeldNotice } from "@/components/held-notice";
+import { NeedsConnection } from "@/components/needs-connection";
+import { useNotePitFormData } from "@/lib/offline/forms";
+import { HeldFormNotice } from "@/components/held";
+import { forgetHeld, heldValues, holdSubmission } from "@/lib/offline/held";
+import { useOnline } from "@/lib/offline/status";
 
 /**
  * Pit scouting for a season without its own forms: the parts of the 2026
@@ -146,7 +152,9 @@ function formFromSaved(data: PitData): FormState {
 export default function NotesPitFormPage() {
   const params = useParams();
   const teamNumber = Number.parseInt(params.teamNumber ?? "", 10);
-  const data = useQuery(api.notes.pitNote, Number.isNaN(teamNumber) ? "skip" : { teamNumber });
+  // Online this is notes.pitNote, unchanged. Offline: the saved copy, or a
+  // blank form for a team the saved list says nobody has scouted.
+  const { data, unavailable, blocked } = useNotePitFormData(teamNumber);
 
   const back = (
     <Button variant="outline" render={<Link to="/pit" />}>
@@ -154,6 +162,22 @@ export default function NotesPitFormPage() {
     </Button>
   );
   if (Number.isNaN(teamNumber)) return <PageShell title="Pit Scouting" description="Bad URL." actions={back} />;
+  if (blocked) {
+    // notes.savePitReport patches the existing report: a blank form saved
+    // from here would overwrite answers this device does not have.
+    return (
+      <PageShell title="Pit Scouting" actions={back}>
+        <NeedsConnection title="Already scouted" description="This team has a pit report that is not saved on this device. Connect to edit it." />
+      </PageShell>
+    );
+  }
+  if (data === undefined && unavailable) {
+    return (
+      <PageShell title="Pit Scouting" actions={back}>
+        <NeedsConnection title="Not saved on this device" description="Open Pit Scouting once while online, and this form will open offline." />
+      </PageShell>
+    );
+  }
   if (data === undefined) return <PageShell title="Pit Scouting" description="Loading…" actions={back} />;
   if (data === null) {
     return <PageShell title="Pit Scouting" description="That team is not at the active event." actions={back} />;
@@ -165,11 +189,16 @@ export default function NotesPitFormPage() {
 
 function PitReportForm({ data, back }: { data: PitData; back: ReactNode }) {
   const navigate = useNavigate();
+  const online = useOnline();
   const teamNumber = data.teamNumber;
   const save = useMutation(api.notes.savePitReport);
   const generateUploadUrl = useMutation(api.pit.generateUploadUrl);
 
-  const [form, setForm] = useState<FormState>(() => formFromSaved(data));
+  // Answers saved offline and not sent yet come first: they are newer than
+  // anything the server or the cache has.
+  const [form, setForm] = useState<FormState>(
+    () => heldValues<FormState>(`note-pit:${data.teamNumber}`) ?? formFromSaved(data),
+  );
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -212,6 +241,19 @@ function PitReportForm({ data, back }: { data: PitData; back: ReactNode }) {
       toast.error(`Check the ${list}`, { description: "What needs fixing is outlined in red." });
       return;
     }
+    if (!online && !photoFile) {
+      // No connection: hand the report to the held list rather than waiting
+      // here. It sends when the connection returns, while the app stays open.
+      holdSubmission({
+        key: `note-pit:${teamNumber}`,
+        label: `Team ${teamNumber} pit report`,
+        to: `/pit/${teamNumber}`,
+        values: form,
+        send: () => save({ teamNumber, ...draft, photoId: null }),
+      });
+      void navigate("/pit");
+      return;
+    }
     setSaving(true);
     try {
       let photoId: Id<"_storage"> | null = null;
@@ -224,6 +266,7 @@ function PitReportForm({ data, back }: { data: PitData; back: ReactNode }) {
         photoId = ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
       }
       await save({ teamNumber, ...draft, photoId });
+      forgetHeld(`note-pit:${teamNumber}`);
       if (draftMissing.length === 0) toast.success(`Saved team ${data.teamNumber}`);
       else toast.success(`Saved team ${data.teamNumber} as partially scouted`, {
         description: `Still needed: ${draftMissing.join(", ")}.`,
@@ -236,7 +279,8 @@ function PitReportForm({ data, back }: { data: PitData; back: ReactNode }) {
     }
   };
 
-  const photo = photoPreview ?? data.photoUrl;
+  // A saved photo lives on the server and cannot be shown offline.
+  const photo = photoPreview ?? (online ? data.photoUrl : null);
   const saved = data.note;
 
   return (
@@ -251,6 +295,7 @@ function PitReportForm({ data, back }: { data: PitData; back: ReactNode }) {
       }
       actions={back}
     >
+      <HeldFormNotice heldKey={`note-pit:${teamNumber}`} />
       <Card>
         <CardHeader>
           <CardTitle>Scoring capability</CardTitle>
@@ -438,9 +483,15 @@ function PitReportForm({ data, back }: { data: PitData; back: ReactNode }) {
                 setPhotoPreview(URL.createObjectURL(compressed));
               });
             }} />
-          <Button variant="outline" className="h-12 w-full" onClick={() => fileInput.current?.click()}>
+          <Button variant="outline" className="h-12 w-full" disabled={!online} onClick={() => fileInput.current?.click()}>
             <Camera className="size-4" /> {photo ? "Replace photo" : "Take photo"}
           </Button>
+          {online ? null : (
+            <p className="text-muted-foreground text-xs">
+              Photos need a connection. Save the rest now and add the photo when you are back online.
+              {data.photoUrl ? " The saved photo is not shown offline." : ""}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -464,9 +515,10 @@ function PitReportForm({ data, back }: { data: PitData; back: ReactNode }) {
           Still needed: {draftMissing.join(", ")}.
         </p>
       ) : null}
+      <HeldNotice saving={saving} />
       <Button className="h-14 w-full text-base" disabled={saving} onClick={() => void submit()}>
         {saving ? <LoadingWheel className="size-4" /> : null}
-        {saved && saved.status !== "none" ? "Update report" : "Submit report"}
+        {!online ? "Save when back online" : saved && saved.status !== "none" ? "Update report" : "Submit report"}
       </Button>
     </PageShell>
   );

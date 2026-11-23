@@ -1,4 +1,6 @@
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { useOnlineMutation, useOnlineAction } from "@/lib/offline/use-online-mutation";
+import { useQuery } from "convex/react";
 import { CheckCircle2, Download, Trash2, Trash, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -114,19 +116,19 @@ function AdminPageBody() {
     data: events, loading: eventsLoading, updatedAt: eventsUpdatedAt,
     refresh: refreshEvents,
   } = useOnDemand("events", api.events.list, {});
-  const importEvent = useAction(api.tba.importEvent);
-  const setActiveForTeam = useMutation(api.events.setActiveForTeam);
-  const softDelete = useMutation(api.events.softDelete);
-  const recoverEvent = useMutation(api.events.recover);
+  const importEvent = useOnlineAction(api.tba.importEvent);
+  const setActiveForTeam = useOnlineMutation(api.events.setActiveForTeam);
+  const softDelete = useOnlineMutation(api.events.softDelete);
+  const recoverEvent = useOnlineMutation(api.events.recover);
   const [purgeTarget, setPurgeTarget] = useState<string | null>(null);
   const [purgeKey, setPurgeKey] = useState("");
   const [purging, setPurging] = useState(false);
-  const settings = useQuery(api.events.teamSettings);
-  const removeEvent = useMutation(api.events.remove);
+  const settings = useCachedQuery(api.events.teamSettings);
+  const removeEvent = useOnlineMutation(api.events.remove);
   const [removing, setRemoving] = useState<string | null>(null);
   const [confirmKey, setConfirmKey] = useState("");
 
-  const me = useQuery(api.profiles.me);
+  const me = useCachedQuery(api.profiles.me);
   const isFullAdmin = me?.role === "admin";
 
   const [teamFor, setTeamFor] = useState<number | null>(null);

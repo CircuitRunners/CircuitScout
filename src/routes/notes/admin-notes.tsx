@@ -1,4 +1,6 @@
-import { useMutation, useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
+import { useOnlineMutation } from "@/lib/offline/use-online-mutation";
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -12,9 +14,9 @@ import {
 
 /** The notes season's report tools: read and remove notes. */
 export default function NotesAdminReports() {
-  const data = useQuery(api.notes.adminList);
-  const removePit = useMutation(api.notes.removePit);
-  const removeMatch = useMutation(api.notes.removeMatch);
+  const data = useCachedQuery(api.notes.adminList);
+  const removePit = useOnlineMutation(api.notes.removePit);
+  const removeMatch = useOnlineMutation(api.notes.removeMatch);
   const [confirm, setConfirm] = useState<string | null>(null);
 
   const run = (id: string, fn: () => Promise<unknown>) => {
@@ -47,7 +49,7 @@ export default function NotesAdminReports() {
       </CardHeader>
       <CardContent className="space-y-6">
         {data === undefined ? (
-          <p className="text-muted-foreground text-sm">Loading…</p>
+          <p className="text-muted-foreground text-sm"><LoadingText /></p>
         ) : data === null ? (
           <p className="text-muted-foreground text-sm">No active event.</p>
         ) : (

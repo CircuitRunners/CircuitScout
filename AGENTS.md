@@ -20,6 +20,12 @@ Always `bun`, `bunx`, `bun run` — never npm/pnpm/yarn/npx.
   selection, active tab, sidebar/panel/dialog open, drag state, transient
   editor state, local UI preferences.
 - Never copy a Convex query result into Zustand.
+- One named exception to "never copy a query result": the offline store in
+  `src/lib/offline/` keeps the latest result of listed queries in IndexedDB
+  so pages can show them with no connection. Read through `useCachedQuery`,
+  which returns the live result whenever there is one. Never read the store
+  from a page, never put a cached result in Zustand, and bump
+  `CACHE_VERSION` in `store.ts` when a cached query's return shape changes.
 - Never add API routes, server handlers or a backend layer for data that
   belongs in Convex.
 

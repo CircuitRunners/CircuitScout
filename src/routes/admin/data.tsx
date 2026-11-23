@@ -1,4 +1,6 @@
-import { useConvex, useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
+import { useConvex } from "convex/react";
 import { Download } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -19,7 +21,7 @@ const KINDS = [
 ];
 
 export default function AdminDataPage() {
-  const data = useQuery(api.stats.coverage);
+  const data = useCachedQuery(api.stats.coverage);
   const convex = useConvex();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -94,7 +96,7 @@ export default function AdminDataPage() {
         </CardHeader>
         <CardContent className="space-y-2">
           {data === undefined ? (
-            <p className="text-muted-foreground text-sm">Loading…</p>
+            <p className="text-muted-foreground text-sm"><LoadingText /></p>
           ) : data.matches.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               Every scheduled robot has at least one report.

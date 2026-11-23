@@ -1,10 +1,10 @@
-import { useAuthActions } from "@convex-dev/auth/react";
-import { useQuery } from "convex/react";
 import { LogOut, Menu, User } from "lucide-react";
 import { Link, NavLink } from "react-router";
 
 import { api } from "../../convex/_generated/api";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { ConnectionIndicator } from "@/components/connection-indicator";
+import { useSignOutAndClear } from "@/lib/offline/use-sign-out";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -33,8 +33,8 @@ function linkClass({ isActive }: { isActive: boolean }): string {
 }
 
 export function AppNav() {
-  const { signOut } = useAuthActions();
-  const profile = useQuery(api.profiles.me);
+  const signOut = useSignOutAndClear();
+  const profile = useCachedQuery(api.profiles.me);
   const navOpen = useUIStore((s) => s.navOpen);
   const setNavOpen = useUIStore((s) => s.setNavOpen);
 

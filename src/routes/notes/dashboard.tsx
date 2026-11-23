@@ -1,7 +1,9 @@
-import { useQuery } from "convex/react";
 import { Link } from "react-router";
 
 import { api } from "../../../convex/_generated/api";
+import { HeldList } from "@/components/held";
+import { OfflineReady } from "@/components/offline-ready";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { NotesExport } from "./export";
 import { ShiftRow } from "@/components/shift-picker";
 import { StatLinks } from "@/components/stat-links";
@@ -27,10 +29,10 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
 
 export default function NotesDashboardPage() {
   const { event, year } = useSeason();
-  const progress = useQuery(api.notes.progress);
-  const matches = useQuery(api.matches.listForEvent);
+  const progress = useCachedQuery(api.notes.progress);
+  const matches = useCachedQuery(api.matches.listForEvent);
   // Shifts and "Up next", counted in notes rather than 2026 reports.
-  const assignments = useQuery(api.notes.assignments);
+  const assignments = useCachedQuery(api.notes.assignments);
 
   const teams = progress?.teams ?? 0;
   const pitNoted = progress?.pitNoted ?? 0;
@@ -58,6 +60,15 @@ export default function NotesDashboardPage() {
         </div>
       }
     >
+      <OfflineReady
+        lists={[
+          { fn: "events:active", missing: "Waiting for the event." },
+          { fn: "matches:listForEvent", missing: "Waiting for the match schedule." },
+          // This dashboard does not load the team list; Pit Scouting does.
+          { fn: "notes:teams", missing: "Open Pit Scouting once to save the team list." },
+        ]}
+      />
+      <HeldList />
       {assignments?.upNext ? (
         <Card>
           <CardHeader>

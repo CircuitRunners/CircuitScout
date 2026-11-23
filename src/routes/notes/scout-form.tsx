@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -16,6 +16,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { CapabilityCheck } from "@/components/scouting/capability-check";
 import { RatingScale } from "@/components/scouting/rating-scale";
 import { LoadingWheel } from "@/components/loading-wheel";
+import { HeldNotice } from "@/components/held-notice";
+import { NeedsConnection } from "@/components/needs-connection";
+import { useNoteMatchFormData } from "@/lib/offline/forms";
+import { HeldFormNotice } from "@/components/held";
+import { forgetHeld, holdSubmission, useHeld } from "@/lib/offline/held";
+import { useOnline } from "@/lib/offline/status";
 
 /**
  * Match scouting for a season without its own forms: the 2026 form's shape
@@ -31,7 +37,9 @@ export default function NotesScoutFormPage() {
   const matchNumber = Number.parseInt(params.matchNumber ?? "", 10);
   const teamNumber = Number.parseInt(params.teamNumber ?? "", 10);
   const bad = Number.isNaN(matchNumber) || Number.isNaN(teamNumber);
-  const data = useQuery(api.notes.matchNote, bad ? "skip" : { matchNumber, teamNumber });
+  // Online this is notes.matchNote, unchanged. Offline: the saved copy, or rebuilt from the saved lists.
+  const { data, unavailable, blocked } = useNoteMatchFormData(matchNumber, teamNumber, !bad);
+  const held = useHeld(`note-match:${matchNumber}:${teamNumber}`);
 
   const back = (
     <Button variant="outline" render={<Link to="/scout" />}>
@@ -39,6 +47,22 @@ export default function NotesScoutFormPage() {
     </Button>
   );
   if (bad) return <PageShell title="Match Scouting" description="Bad URL." actions={back} />;
+  if (blocked) {
+    // notes.saveMatchReport replaces the earlier report: a blank form saved
+    // from here would overwrite one this device does not have.
+    return (
+      <PageShell title="Match Scouting" actions={back}>
+        <NeedsConnection title="Already scouted" description="Your earlier report on this robot is not saved on this device. Connect to edit it." />
+      </PageShell>
+    );
+  }
+  if (data === undefined && unavailable) {
+    return (
+      <PageShell title="Match Scouting" actions={back}>
+        <NeedsConnection title="Not saved on this device" description="Open Match Scouting once while online, and this form will open offline." />
+      </PageShell>
+    );
+  }
   if (data === undefined) return <PageShell title="Match Scouting" description="Loading…" actions={back} />;
   if (data === null) {
     return (
@@ -47,11 +71,15 @@ export default function NotesScoutFormPage() {
     );
   }
   // Keyed, so a saved report seeds the form exactly once per robot and match.
-  return <MatchReportForm key={`${data.matchNumber}:${data.teamNumber}`} data={data} back={back} />;
+  // Answers saved offline and not sent yet seed the form: they are newer
+  // than anything the server or the cache has.
+  const seeded = held ? { ...data, report: held.values as MatchData["report"] } : data;
+  return <MatchReportForm key={`${data.matchNumber}:${data.teamNumber}`} data={seeded} back={back} />;
 }
 
 function MatchReportForm({ data, back }: { data: MatchData; back: ReactNode }) {
   const navigate = useNavigate();
+  const online = useOnline();
   const save = useMutation(api.notes.saveMatchReport);
   const saved = data.report;
 
@@ -97,6 +125,26 @@ function MatchReportForm({ data, back }: { data: MatchData; back: ReactNode }) {
       toast.error("Some required fields are empty", { description: "What needs filling in is outlined in red." });
       return;
     }
+    if (!online) {
+      // No connection: hand the report to the held list rather than waiting
+      // here. It sends when the connection returns, while the app stays open.
+      const report = {
+        autoPath, autoScoring, teleopScoring, endgame,
+        driver, defense,
+        broke, brokeNotes: broke ? brokeNotes : "",
+        inconsistent, inconsistentNotes: inconsistent ? inconsistentNotes : "",
+        notes: finalNotes,
+      };
+      holdSubmission({
+        key: `note-match:${data.matchNumber}:${data.teamNumber}`,
+        label: `Qual ${data.matchNumber} · team ${data.teamNumber}`,
+        to: `/scout/${data.matchNumber}/${data.teamNumber}`,
+        values: report,
+        send: () => save({ matchNumber: data.matchNumber, teamNumber: data.teamNumber, ...report }),
+      });
+      void navigate("/scout");
+      return;
+    }
     setSaving(true);
     try {
       await save({
@@ -108,6 +156,7 @@ function MatchReportForm({ data, back }: { data: MatchData; back: ReactNode }) {
         inconsistent, inconsistentNotes: inconsistent ? inconsistentNotes : "",
         notes: finalNotes,
       });
+      forgetHeld(`note-match:${data.matchNumber}:${data.teamNumber}`);
       toast.success(`Qual ${data.matchNumber} · team ${data.teamNumber} ${saved || data.notes !== null ? "updated" : "submitted"}`);
       void navigate("/scout");
     } catch (error) {
@@ -139,6 +188,7 @@ function MatchReportForm({ data, back }: { data: MatchData; back: ReactNode }) {
       }
       actions={back}
     >
+      <HeldFormNotice heldKey={`note-match:${data.matchNumber}:${data.teamNumber}`} />
       <Tabs value={period} onValueChange={(v) => setPeriod(v as Period)}>
         <TabsList id="match-form-tabs" className="w-full scroll-mt-4">
           <TabsTrigger value="auto" className="flex-1">Auto</TabsTrigger>
@@ -232,9 +282,10 @@ function MatchReportForm({ data, back }: { data: MatchData; back: ReactNode }) {
           Still needed: {missing.join(", ")}.
         </p>
       ) : null}
+      <HeldNotice saving={saving} />
       <Button className="h-14 w-full text-base" disabled={saving} onClick={() => void submit()}>
         {saving ? <LoadingWheel className="size-4" /> : null}
-        {saved || data.notes !== null ? "Save changes" : "Submit report"}
+        {!online ? "Submit when back online" : saved || data.notes !== null ? "Save changes" : "Submit report"}
       </Button>
     </PageShell>
   );

@@ -1,6 +1,8 @@
 import { Outlet } from "react-router";
 import { AppNav } from "@/components/app-nav";
+import { OfflineBanner } from "@/components/offline-banner";
 import { PracticeBanner } from "@/components/practice-banner";
+import { ViewOnlyNotice } from "@/components/view-only-notice";
 import { SeasonProvider } from "@/components/season-provider";
 
 export function AppLayout() {
@@ -10,6 +12,8 @@ export function AppLayout() {
       <div className="sticky top-0 z-40">
         <PracticeBanner />
         <AppNav />
+        <OfflineBanner />
+        <ViewOnlyNotice />
       </div>
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
         <SeasonProvider>

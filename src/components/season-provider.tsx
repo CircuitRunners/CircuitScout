@@ -1,7 +1,7 @@
-import { useQuery } from "convex/react";
 import { useMemo, type ReactNode } from "react";
 
 import { api } from "../../convex/_generated/api";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
 import { SeasonContext, seasonOf, type SeasonState } from "@/lib/season";
 
 /**
@@ -10,7 +10,7 @@ import { SeasonContext, seasonOf, type SeasonState } from "@/lib/season";
  * activates a different event Convex pushes it to every open phone.
  */
 export function SeasonProvider({ children }: { children: ReactNode }) {
-  const event = useQuery(api.events.active);
+  const event = useCachedQuery(api.events.active);
   const value = useMemo<SeasonState>(() => ({
     loading: event === undefined,
     event: event ?? null,

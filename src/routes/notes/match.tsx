@@ -1,4 +1,5 @@
-import { useQuery } from "convex/react";
+import { useCachedQuery } from "@/lib/offline/use-cached-query";
+import { LoadingText } from "@/components/loading-text";
 import { ArrowLeft } from "lucide-react";
 import { Link, useParams } from "react-router";
 
@@ -69,7 +70,7 @@ function Side({ label, robots, red }: { label: string; robots: Robot[]; red: boo
 export default function NotesMatchPage() {
   const params = useParams();
   const matchNumber = Number.parseInt(params.matchNumber ?? "", 10);
-  const data = useQuery(api.notes.forMatch, Number.isNaN(matchNumber) ? "skip" : { matchNumber });
+  const data = useCachedQuery(api.notes.forMatch, Number.isNaN(matchNumber) ? "skip" : { matchNumber });
   const ratings = useRatings();
 
   const back = (
@@ -130,7 +131,7 @@ export default function NotesMatchPage() {
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-6">
             {ratings.loading ? (
-              <p className="text-muted-foreground text-sm">Loading…</p>
+              <p className="text-muted-foreground text-sm"><LoadingText /></p>
             ) : ratings.byTeam.size === 0 ? (
               <p className="text-muted-foreground text-sm">
                 No {ratings.metric} yet — an admin can pull it from the Admin page.

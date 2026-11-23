@@ -27,6 +27,13 @@ import {
 import type { AutoStep, ClimbLevel, StartPosition } from "@/lib/types";
 import { readSteps } from "@/lib/types";
 import { LoadingWheel } from "@/components/loading-wheel";
+import { HeldNotice } from "@/components/held-notice";
+import { NeedsConnection } from "@/components/needs-connection";
+import { useMatchFormData } from "@/lib/offline/forms";
+import { HeldSummary } from "@/components/held";
+import { holdSubmission, useHeld } from "@/lib/offline/held";
+import { summarizeMatchReport } from "@/lib/offline/held-match-summary";
+import { useOnline } from "@/lib/offline/status";
 
 const CLIMB_OPTIONS: ReadonlyArray<{ value: ClimbLevel; label: string }> = [
   { value: "none", label: "No climb" },
@@ -52,10 +59,12 @@ export default function MatchFormPage() {
   const teamNumber = Number.parseInt(params.teamNumber ?? "", 10);
   const valid = !Number.isNaN(matchNumber) && !Number.isNaN(teamNumber);
 
-  const data = useQuery(
-    api.matchReports.forMatchAndTeam,
-    valid ? { matchNumber, teamNumber } : "skip",
-  );
+  // Online this is matchReports.forMatchAndTeam, unchanged. Offline it is the
+  // saved copy, or the same shape rebuilt from the saved schedule and team list.
+  const { data, unavailable } = useMatchFormData(matchNumber, teamNumber, valid);
+  const online = useOnline();
+  const heldKey = `match:${matchNumber}:${teamNumber}`;
+  const held = useHeld(heldKey);
   const submit = useMutation(api.matchReports.submit);
   const update = useMutation(api.matchReports.update);
 
@@ -296,11 +305,22 @@ export default function MatchFormPage() {
         toast.success("Report updated");
         void navigate(-1);
       } else {
-        await submit({
-          matchId: data.match._id,
-          teamId: data.team._id,
-          ...payload,
-        });
+        const args = { matchId: data.match._id, teamId: data.team._id, ...payload };
+        if (!online) {
+          // No connection: hand the report to the held list rather than
+          // waiting here. It sends when the connection returns, while the
+          // app stays open.
+          holdSubmission({
+            key: heldKey,
+            label: `Qual ${matchNumber} · team ${teamNumber}`,
+            to: `/scout/${matchNumber}/${teamNumber}`,
+            values: payload,
+            send: () => submit(args),
+          });
+          void navigate("/scout");
+          return;
+        }
+        await submit(args);
         toast.success(`Qual ${matchNumber} · team ${teamNumber} submitted`);
         void navigate("/scout");
       }
@@ -314,10 +334,43 @@ export default function MatchFormPage() {
   };
 
   if (!valid) return <PageShell title="Match Scouting" description="Bad URL." />;
+  if (editId && !online && editing === undefined) {
+    return (
+      <PageShell title="Match Scouting">
+        <NeedsConnection title="Needs a connection" description="Editing a submitted report needs a connection." />
+      </PageShell>
+    );
+  }
+  if (data === undefined && unavailable) {
+    return (
+      <PageShell title="Match Scouting">
+        <NeedsConnection title="Not saved on this device" description="Open the Dashboard once while online, and this form will open offline." />
+      </PageShell>
+    );
+  }
   if (data === undefined) return <PageShell title="Match Scouting" description="Loading…" />;
   if (data === null) {
     return (
       <PageShell title="Match Scouting" description="That match or team is not at the active event.">
+        <Button variant="outline" onClick={() => void navigate("/scout")}>
+          <ArrowLeft className="size-4" /> Back
+        </Button>
+      </PageShell>
+    );
+  }
+  if (held && !editId) {
+    // A submitted match report can only be changed with a reason on record,
+    // so a held one is shown, not reopened as a form.
+    return (
+      <PageShell
+        title={`Qual ${matchNumber} · ${data.team.number}`}
+        description={
+          held.status === "waiting"
+            ? "This report is waiting to send. It cannot be changed until it has."
+            : "This report could not be sent."
+        }
+      >
+        <HeldSummary item={held} rows={summarizeMatchReport(held.values)} />
         <Button variant="outline" onClick={() => void navigate("/scout")}>
           <ArrowLeft className="size-4" /> Back
         </Button>
@@ -621,6 +674,7 @@ export default function MatchFormPage() {
         </p>
       ) : null}
 
+      <HeldNotice saving={saving} />
       <Button
         className="h-14 w-full text-base"
         disabled={
@@ -631,7 +685,7 @@ export default function MatchFormPage() {
         onClick={() => void save()}
       >
         {saving ? <LoadingWheel className="size-4" /> : null}
-        {editId ? "Save changes" : "Submit report"}
+        {editId ? "Save changes" : online ? "Submit report" : "Submit when back online"}
       </Button>
     </PageShell>
   );
