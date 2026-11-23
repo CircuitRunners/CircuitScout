@@ -61,8 +61,11 @@ cat > .patch-docs.json <<'EOF_JSON'
  },
  "replaced": {
   "README.md": {
-   "was": "4e3e3954304089029e89b232c93c0269e5d564191b9bd60d872b1233f99d8304",
-   "now": "12caecccd6829262770aab9dc4cccd75b518f8027c2756201ce9e996c0119792"
+   "was": [
+    "4e3e3954304089029e89b232c93c0269e5d564191b9bd60d872b1233f99d8304",
+    "12caecccd6829262770aab9dc4cccd75b518f8027c2756201ce9e996c0119792"
+   ],
+   "now": "061f54f0f5a09f12ec134e55e91ac40f90d95e41a3cf5397461dc7c951a23977"
   }
  }
 }
@@ -85,7 +88,7 @@ const read = (path) => {
 // offline patches wrote, or what this patch writes.
 for (const [path, { was, now }] of Object.entries(replaced)) {
   const hash = createHash("sha256").update(read(path)).digest("hex");
-  if (hash !== was && hash !== now) {
+  if (![was].flat().includes(hash) && hash !== now) {
     throw new Error(`${path} is not the Vite starter text any more. This patch replaces it whole, so it stops here: move your version aside and run again, or keep yours.`);
   }
   if (mode === "check") console.log(`  ${hash === now ? "already applied " : "ok              "} ${path}`);
@@ -166,14 +169,15 @@ Always use `bun`.
 `bun run go` needs a Convex deployment. The app reads its address from
 `VITE_CONVEX_URL`.
 
-Convex functions read these environment variables, set on the deployment:
+The Convex deployment needs these environment variables:
 
 | Variable | Used for |
 | --- | --- |
 | `TBA_API_KEY` | Importing events, teams and schedules from The Blue Alliance |
 | `MATCH13_API_KEY` | match13 ratings |
 | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Password reset emails |
-| `SITE_URL` | Links in those emails, and sign-in |
+| `SITE_URL` | The site's address; reset links are built from it |
+| `JWT_PRIVATE_KEY`, `JWKS` | Convex Auth; both from one run of the key generator |
 
 ## How changes ship
 

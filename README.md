@@ -41,14 +41,15 @@ Always use `bun`.
 `bun run go` needs a Convex deployment. The app reads its address from
 `VITE_CONVEX_URL`.
 
-Convex functions read these environment variables, set on the deployment:
+The Convex deployment needs these environment variables:
 
 | Variable | Used for |
 | --- | --- |
 | `TBA_API_KEY` | Importing events, teams and schedules from The Blue Alliance |
 | `MATCH13_API_KEY` | match13 ratings |
 | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | Password reset emails |
-| `SITE_URL` | Links in those emails, and sign-in |
+| `SITE_URL` | The site's address; reset links are built from it |
+| `JWT_PRIVATE_KEY`, `JWKS` | Convex Auth; both from one run of the key generator |
 
 ## How changes ship
 
